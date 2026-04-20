@@ -12,7 +12,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    const upstream = await fetch(endpoint, {
+    const upstreamUrl = `https://fass.se/api/content?endpoint=${encodeURIComponent(endpoint)}`;
+
+    const upstream = await fetch(upstreamUrl, {
       method: req.method,
       headers: {
         accept: req.headers.accept || "*/*",
