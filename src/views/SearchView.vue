@@ -4,7 +4,6 @@ import { useRoute } from "vue-router";
 import {
   getInterchangeablePackages,
   getPackage,
-  getPharmaciesWithStock,
   type FormStrengthOption,
   type Pharmacy,
 } from "../api/fassClient";
@@ -72,59 +71,6 @@ function optionDisplayLabel(option: FormStrengthOption): string {
   return option.manufacturer ? `${option.label} ${option.manufacturer}` : option.label;
 }
 
-function isCodeLike(value: string): boolean {
-  const trimmed = value.trim();
-  return trimmed.length === 0 || /^\d{6,}$/.test(trimmed);
-}
-
-function buildFriendlyStrengthFromPackage(rawPackage: unknown): string | null {
-  const form =
-    findFirstTextDeep(rawPackage, [
-      "pharmaceuticalForm",
-      "pharmaceuticalFormName",
-      "pharmaceuticalFormText",
-      "pharmaceuticalFormDescription",
-      "form",
-      "formText",
-      "dosageForm",
-      "dosageFormText",
-      "drugForm",
-    ]) ?? "";
-  const strength =
-    findFirstTextDeep(rawPackage, [
-      "strength",
-      "strengthText",
-      "strengthLabel",
-      "strengthDescription",
-      "dosage",
-      "dosageText",
-      "activeSubstanceStrength",
-    ]) ?? "";
-  const manufacturer =
-    findFirstTextDeep(rawPackage, [
-      "marketingCompany",
-      "manufacturer",
-      "companyName",
-      "marketingAuthorizationHolder",
-      "holder",
-      "company",
-    ]) ?? "";
-  const fallbackTitle =
-    findFirstTextDeep(rawPackage, [
-      "displayName",
-      "packageName",
-      "name",
-      "title",
-      "medicinalProductName",
-      "tradeName",
-    ]) ?? "";
-
-  const main = [form, strength].filter((part) => part.length > 0).join(" ");
-  const fullBase = main.length > 0 ? main : fallbackTitle;
-  const full = [fullBase, manufacturer].filter((part) => part.length > 0).join(" ");
-  return full.trim() || null;
-}
-
 function packageTypeFromStrengthLabel(label: string): string {
   const cleaned = label.trim();
   if (!cleaned) {
@@ -179,52 +125,6 @@ function findFirstTextDeep(raw: unknown, keys: string[]): string | null {
   return null;
 }
 
-function normalizeKeyName(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[åä]/g, "a")
-    .replace(/ö/g, "o")
-    .replace(/[^a-z0-9]/g, "");
-}
-
-function findFirstTextDeepByKeyTokens(raw: unknown, tokens: string[]): string | null {
-  const normalizedTokens = tokens.map((token) => normalizeKeyName(token));
-  const queue: unknown[] = [raw];
-  const visited = new Set<object>();
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current || typeof current !== "object") {
-      continue;
-    }
-
-    const ref = current as object;
-    if (visited.has(ref)) {
-      continue;
-    }
-    visited.add(ref);
-
-    if (Array.isArray(current)) {
-      for (const item of current) {
-        queue.push(item);
-      }
-      continue;
-    }
-
-    const obj = current as Record<string, unknown>;
-    for (const [key, value] of Object.entries(obj)) {
-      const normalizedKey = normalizeKeyName(key);
-      const matchesToken = normalizedTokens.some((token) => normalizedKey.includes(token));
-      if (matchesToken && typeof value === "string" && value.trim().length > 0) {
-        return value.trim();
-      }
-      queue.push(value);
-    }
-  }
-
-  return null;
-}
-
 async function createFallbackOptionFromPackage(packageIdValue: string): Promise<FormStrengthOption> {
   const pkg = await getPackage(packageIdValue);
   const form =
@@ -267,12 +167,6 @@ function filteredResults() {
 
 function hasResultsInOtherFilters(): boolean {
   return rows.value.length > 0 && filteredResults().length === 0;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 }
 
 async function loadFormStrengthOptions(basePackageId: string) {
@@ -364,166 +258,33 @@ async function checkStock() {
           } as FormStrengthOption,
         ];
 
-    const uniquePackageIds = Array.from(
-      new Set(optionsToCheck.map((option) => option.packageId)),
-    );
+    const variants = optionsToCheck.map((option) => ({
+      packageId: option.packageId,
+      strengthLabel: optionDisplayLabel(option),
+      packageType: option.packageType ?? packageTypeFromStrengthLabel(optionDisplayLabel(option)),
+    }));
 
-    const packageTypeByPackageId = new Map<string, string>();
-    const strengthLabelByPackageId = new Map<string, string>();
-    await Promise.all(
-      optionsToCheck.map(async (option) => {
-        const baseLabel = optionDisplayLabel(option);
-        if (!isCodeLike(baseLabel)) {
-          strengthLabelByPackageId.set(option.packageId, baseLabel);
-        }
-
-        if (option.packageType && option.packageType.trim()) {
-          packageTypeByPackageId.set(option.packageId, option.packageType);
-          if (!isCodeLike(baseLabel)) return;
-        }
-
-        try {
-          const pkg = await getPackage(option.packageId);
-          const friendlyStrength = buildFriendlyStrengthFromPackage(pkg);
-          const looseStrength =
-            findFirstTextDeepByKeyTokens(pkg, ["styrka", "strength", "dosage"]) ??
-            findFirstTextDeepByKeyTokens(pkg, ["lakemedelsform", "pharmaceuticalform"]);
-          const bestStrength =
-            (friendlyStrength && !isCodeLike(friendlyStrength) ? friendlyStrength : null) ??
-            (looseStrength && !isCodeLike(looseStrength) ? looseStrength : null);
-          if (bestStrength) {
-            strengthLabelByPackageId.set(option.packageId, bestStrength);
-          }
-
-          const fromDetails =
-            findFirstTextDeep(pkg, [
-              "packageType",
-              "packageTypeText",
-              "packageTypeName",
-              "packageDescription",
-              "packageName",
-              "packageSize",
-              "packSize",
-              "packagingType",
-              "packagingTypeText",
-              "packageText",
-              "containerType",
-              "packaging",
-            ]) ??
-            findFirstTextDeepByKeyTokens(pkg, ["forpackning", "package", "packaging", "container"]) ??
-            "-";
-          packageTypeByPackageId.set(option.packageId, fromDetails);
-
-          if (!strengthLabelByPackageId.has(option.packageId)) {
-            const nameLike =
-              findFirstTextDeep(pkg, [
-                "displayName",
-                "name",
-                "title",
-                "medicinalProductName",
-                "tradeName",
-              ]) ?? findFirstTextDeepByKeyTokens(pkg, ["name", "title"]);
-            if (nameLike && !isCodeLike(nameLike)) {
-              strengthLabelByPackageId.set(option.packageId, nameLike);
-            }
-          }
-        } catch {
-          packageTypeByPackageId.set(option.packageId, "-");
-          if (!strengthLabelByPackageId.has(option.packageId)) {
-            const fallbackFromOption = optionDisplayLabel(option);
-            strengthLabelByPackageId.set(
-              option.packageId,
-              isCodeLike(fallbackFromOption) ? "Styrka saknas i källa" : fallbackFromOption,
-            );
-          }
-        }
+    const response = await fetch("/api/stock", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        zipCode: zipCode.value.trim(),
+        variants,
       }),
-    );
+      cache: "no-store",
+    });
 
-    const packageResults: Array<{ packageId: string; rows: Awaited<ReturnType<typeof getPharmaciesWithStock>> }> = [];
-    let successfulRequests = 0;
-    const failedPackages: Array<{ packageId: string; reason: string }> = [];
-    for (const packageIdValue of uniquePackageIds) {
-      try {
-        const packageRows = await getPharmaciesWithStock({
-          packageId: packageIdValue,
-          zipCode: zipCode.value.trim(),
-          limit: 60,
-        });
-        successfulRequests += 1;
-        packageResults.push({
-          packageId: packageIdValue,
-          rows: packageRows,
-        });
-      } catch (err) {
-        const reason = err instanceof Error ? err.message : "Okänt fel";
-        failedPackages.push({ packageId: packageIdValue, reason });
-        // Skip one variant if Fass rejects it temporarily; keep partial results.
-        packageResults.push({
-          packageId: packageIdValue,
-          rows: [],
-        });
-      }
-
-      // Small delay to reduce upstream rate-limit/anti-bot triggers.
-      await sleep(220);
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload?.error || "Kunde inte hämta lagerstatus.");
     }
 
-    if (successfulRequests === 0) {
-      const details = failedPackages
-        .slice(0, 3)
-        .map((f) => `${f.packageId}: ${f.reason}`)
-        .join(" | ");
-      throw new Error(
-        `Kunde inte hämta data för någon styrka just nu.${details ? ` (${details})` : ""}`,
-      );
-    }
-    const unavailableByPackage = new Set(failedPackages.map((f) => f.packageId));
-    unavailableStrengths.value = optionsToCheck
-      .filter((option) => unavailableByPackage.has(option.packageId))
-      .map((option) => optionDisplayLabel(option));
-
-    const builtRows: Array<{
-      key: string;
-      pharmacy: Pharmacy;
-      strengthLabel: string;
-      packageType: string;
-      stockInformation: string;
-      inStock: boolean;
-    }> = [];
-
-    for (const option of optionsToCheck) {
-      const matchingPackageRows =
-        packageResults.find((entry) => entry.packageId === option.packageId)?.rows ?? [];
-      const strengthLabel =
-        strengthLabelByPackageId.get(option.packageId) ??
-        (isCodeLike(optionDisplayLabel(option))
-          ? "Styrka saknas i källa"
-          : optionDisplayLabel(option));
-      const packageTypeRaw = packageTypeByPackageId.get(option.packageId) ?? "-";
-      const packageType =
-        packageTypeRaw !== "-" && !isCodeLike(packageTypeRaw)
-          ? packageTypeRaw
-          : (() => {
-              const inferred = packageTypeFromStrengthLabel(strengthLabel);
-              return inferred === "-" ? "Förpackning saknas i källa" : inferred;
-            })();
-      for (const item of matchingPackageRows) {
-        const stockInformation = item.stock?.stockInformation ?? "UNKNOWN";
-        builtRows.push({
-          key: `${item.pharmacy.glnCode}-${option.id}`,
-          pharmacy: item.pharmacy,
-          strengthLabel: isCodeLike(optionDisplayLabel(option))
-            ? strengthLabel
-            : optionDisplayLabel(option),
-          packageType,
-          stockInformation,
-          inStock: item.inStock,
-        });
-      }
-    }
-
-    rows.value = builtRows;
+    rows.value = Array.isArray(payload?.rows) ? payload.rows : [];
+    unavailableStrengths.value = Array.isArray(payload?.unavailableStrengths)
+      ? payload.unavailableStrengths
+      : [];
 
   } catch (err) {
     const message = err instanceof Error ? err.message : "Okänt fel";
