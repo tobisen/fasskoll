@@ -665,7 +665,14 @@ export async function getPharmaciesWithStock({
     return [];
   }
 
-  const stockItems = await getStockStatus(packageId, glnCodes);
+  let stockItems: StockItem[] = [];
+  try {
+    stockItems = await getStockStatus(packageId, glnCodes);
+  } catch {
+    // Upstream stock endpoint can be temporarily blocked/unavailable.
+    // Return pharmacies anyway so UI can show fallback status.
+    stockItems = [];
+  }
   const stockMap = new Map(stockItems.map((item) => [item.glnCode, item]));
 
   return pharmacies.map((pharmacy) => {
