@@ -265,6 +265,10 @@ function filteredResults() {
   );
 }
 
+function hasResultsInOtherFilters(): boolean {
+  return rows.value.length > 0 && filteredResults().length === 0;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -632,6 +636,9 @@ watch(
 
     <p v-else-if="!loading && rows.length > 0" class="info">
       Inga apotek matchar valt filter.
+    </p>
+    <p v-if="!loading && hasResultsInOtherFilters()" class="info">
+      Tips: välj <strong>Kontakta apotek</strong> eller <strong>Alla statusar</strong>.
     </p>
     <p v-else-if="!loading && (hasSearched || zipCode.trim().length > 0)" class="info">
       Inga träffar för vald sökning (eller tillfälligt tomt svar från Fass).
