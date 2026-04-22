@@ -23,7 +23,7 @@ function handleLogin() {
     router.push({
       path: "/search",
       query: {
-        packageId: "20040607005750",
+        medicine: "Estradot",
         zipCode: "75318",
         autostart: "1",
       },
@@ -74,7 +74,7 @@ onMounted(() => {
           :to="{
             path: '/search',
             query: {
-              packageId: '20040607005750',
+              medicine: 'Estradot',
               zipCode: '75318',
               autostart: '1',
             },
