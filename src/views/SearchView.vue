@@ -2,13 +2,17 @@
 import { onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import {
+  geocodeZip,
   getInterchangeablePackages,
   getPackage,
+  getPharmaciesWithStock,
+  searchDrug,
   type FormStrengthOption,
   type Pharmacy,
+  type SearchDrugItem,
 } from "../api/fassClient";
 
-const DEFAULT_PACKAGE_ID = "20040607005750";
+const DEFAULT_PACKAGE_ID = "";
 const DEFAULT_ZIP_CODE = "75318";
 
 const route = useRoute();
@@ -28,22 +32,24 @@ const rows = ref<
     inStock: boolean;
   }>
 >([]);
+const allRows = ref<
+  Array<{
+    key: string;
+    pharmacy: Pharmacy;
+    strengthLabel: string;
+    packageType: string;
+    stockInformation: string;
+    inStock: boolean;
+  }>
+>([]);
 const loadingOptions = ref(false);
 const selectedStockFilter = ref("IN_STOCK");
 const unavailableStrengths = ref<string[]>([]);
-
-const ESTRADOT_VARIANTS: Array<{
-  nplId: string;
-  strength: string;
-  form: string;
-  manufacturer: string;
-}> = [
-  { nplId: "20040607005750", strength: "25 mikrog/24 timmar", form: "Depotplåster", manufacturer: "Sandoz AS" },
-  { nplId: "20011130000246", strength: "37,5 mikrog/24 timmar", form: "Depotplåster", manufacturer: "Sandoz AS" },
-  { nplId: "20011130000253", strength: "50 mikrog/24 timmar", form: "Depotplåster", manufacturer: "Sandoz AS" },
-  { nplId: "20011130000260", strength: "75 mikrog/24 timmar", form: "Depotplåster", manufacturer: "Sandoz AS" },
-  { nplId: "20011130000277", strength: "100 mikrog/24 timmar", form: "Depotplåster", manufacturer: "Sandoz AS" },
-];
+const medicineQuery = ref("");
+const selectedMedicineLabel = ref("");
+const loadingMedicineSearch = ref(false);
+const selectedRadiusKm = ref(10);
+const searchCenter = ref<{ latitude: number; longitude: number } | null>(null);
 
 const STOCK_GROUP_LABELS: Record<string, string> = {
   IN_STOCK: "I lager",
@@ -69,6 +75,53 @@ function stockLabel(code: string): string {
 
 function optionDisplayLabel(option: FormStrengthOption): string {
   return option.manufacturer ? `${option.label} ${option.manufacturer}` : option.label;
+}
+
+function pickStringCandidate(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function packageIdFromSearchItem(item: SearchDrugItem): string | null {
+  const direct = [
+    item.packageId,
+    item.id,
+    item.nplPackId,
+    item.nplId,
+  ].find((candidate) => typeof candidate === "string" && candidate.trim().length > 0);
+
+  if (typeof direct === "string") {
+    return direct.trim();
+  }
+
+  const obj = item as Record<string, unknown>;
+  const nestedCandidates = [obj.package, obj.packaging, obj.medicinalProductPackage];
+  for (const nested of nestedCandidates) {
+    if (!nested || typeof nested !== "object") {
+      continue;
+    }
+    const nestedObj = nested as Record<string, unknown>;
+    const nestedId = pickStringCandidate(
+      nestedObj.packageId ?? nestedObj.id ?? nestedObj.nplPackId ?? nestedObj.nplId,
+    );
+    if (nestedId) {
+      return nestedId;
+    }
+  }
+
+  return null;
+}
+
+function labelFromSearchItem(item: SearchDrugItem): string {
+  return (
+    pickStringCandidate(item.tradeName) ??
+    pickStringCandidate(item.name) ??
+    packageIdFromSearchItem(item) ??
+    "Okänt läkemedel"
+  );
 }
 
 function packageTypeFromStrengthLabel(label: string): string {
@@ -169,50 +222,144 @@ function hasResultsInOtherFilters(): boolean {
   return rows.value.length > 0 && filteredResults().length === 0;
 }
 
-async function loadFormStrengthOptions(basePackageId: string) {
+function toNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(",", "."));
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function pharmacyCoordinates(pharmacy: Pharmacy): { latitude: number; longitude: number } | null {
+  const latitude = toNumber((pharmacy as Record<string, unknown>).latitude)
+    ?? toNumber((pharmacy as Record<string, unknown>).lat);
+  const longitude = toNumber((pharmacy as Record<string, unknown>).longitude)
+    ?? toNumber((pharmacy as Record<string, unknown>).lng)
+    ?? toNumber((pharmacy as Record<string, unknown>).lon);
+
+  if (latitude === null || longitude === null) {
+    return null;
+  }
+
+  return { latitude, longitude };
+}
+
+function distanceKm(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number },
+): number {
+  const toRadians = (deg: number) => (deg * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRadians(b.latitude - a.latitude);
+  const dLon = toRadians(b.longitude - a.longitude);
+  const lat1 = toRadians(a.latitude);
+  const lat2 = toRadians(b.latitude);
+
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return 2 * earthRadiusKm * Math.asin(Math.sqrt(h));
+}
+
+function applyRadiusFilter(
+  inputRows: Array<{
+    key: string;
+    pharmacy: Pharmacy;
+    strengthLabel: string;
+    packageType: string;
+    stockInformation: string;
+    inStock: boolean;
+  }>,
+): Array<{
+  key: string;
+  pharmacy: Pharmacy;
+  strengthLabel: string;
+  packageType: string;
+  stockInformation: string;
+  inStock: boolean;
+}> {
+  if (!searchCenter.value) {
+    return inputRows;
+  }
+
+  return inputRows.filter((row) => {
+    const coords = pharmacyCoordinates(row.pharmacy);
+    if (!coords) {
+      return false;
+    }
+    return distanceKm(searchCenter.value as { latitude: number; longitude: number }, coords) <= selectedRadiusKm.value;
+  });
+}
+
+function toFormStrengthOption(pkgObj: Record<string, unknown>, fallbackId: string): FormStrengthOption {
+  const packId =
+    (typeof pkgObj.nplPackId === "string" && pkgObj.nplPackId.trim()) ||
+    (typeof pkgObj.id === "string" && pkgObj.id.trim()) ||
+    (typeof pkgObj.packageId === "string" && pkgObj.packageId.trim()) ||
+    (typeof pkgObj.nplId === "string" && pkgObj.nplId.trim()) ||
+    fallbackId;
+
+  const form =
+    (typeof pkgObj.doseForm === "string" && pkgObj.doseForm.trim()) ||
+    (typeof pkgObj.pharmaceuticalForm === "string" && pkgObj.pharmaceuticalForm.trim()) ||
+    undefined;
+  const strength =
+    (typeof pkgObj.strengthAndUnit === "string" && pkgObj.strengthAndUnit.trim()) ||
+    (typeof pkgObj.strength === "string" && pkgObj.strength.trim()) ||
+    undefined;
+  const manufacturer =
+    (typeof pkgObj.companyName === "string" && pkgObj.companyName.trim()) ||
+    undefined;
+  const packageType =
+    (typeof pkgObj.packagingName === "string" && pkgObj.packagingName.trim()) ||
+    (typeof pkgObj.container === "string" && pkgObj.container.trim()) ||
+    undefined;
+
+  const labelParts = [form, strength].filter((part): part is string => Boolean(part));
+  const label = labelParts.length > 0 ? labelParts.join(" ") : packId;
+
+  return {
+    id: `${packId}:${label}`,
+    label,
+    form,
+    strength,
+    manufacturer,
+    packageType,
+    packageId: packId,
+  };
+}
+
+async function loadFormStrengthOptions(sourcePackageIds: string[]) {
   loadingOptions.value = true;
   try {
+    const sourceIds = Array.from(new Set(sourcePackageIds.map((id) => id.trim()).filter(Boolean)));
     const resolved: FormStrengthOption[] = [];
-    for (const variant of ESTRADOT_VARIANTS) {
-      try {
-        const packages = await getInterchangeablePackages(variant.nplId);
-        const chosen =
-          packages.find((pkg) => (pkg as Record<string, unknown>).isOnTheMarket === true) ??
-          packages[0];
-        const chosenObj = (chosen ?? {}) as Record<string, unknown>;
-        const nplPackId =
-          (typeof chosenObj.nplPackId === "string" && chosenObj.nplPackId) ||
-          variant.nplId;
-        const packageType =
-          (typeof chosenObj.packagingName === "string" && chosenObj.packagingName) ||
-          (typeof chosenObj.container === "string" && chosenObj.container) ||
-          undefined;
 
-        resolved.push({
-          id: `${nplPackId}:${variant.form} ${variant.strength}`,
-          label: `${variant.form} ${variant.strength}`,
-          form: variant.form,
-          strength: variant.strength,
-          manufacturer: variant.manufacturer,
-          packageType,
-          packageId: nplPackId,
-        });
-      } catch {
-        resolved.push({
-          id: `${variant.nplId}:${variant.form} ${variant.strength}`,
-          label: `${variant.form} ${variant.strength}`,
-          form: variant.form,
-          strength: variant.strength,
-          manufacturer: variant.manufacturer,
-          packageId: variant.nplId,
-        });
+    for (const sourceId of sourceIds) {
+      const interchangeable = await getInterchangeablePackages(sourceId);
+      for (const pkg of interchangeable) {
+        resolved.push(toFormStrengthOption(pkg as Record<string, unknown>, sourceId));
       }
     }
 
-    formStrengthOptions.value = resolved.sort((a, b) => a.label.localeCompare(b.label, "sv"));
+    const uniqueByPackId = new Map<string, FormStrengthOption>();
+    for (const option of resolved) {
+      if (!uniqueByPackId.has(option.packageId)) {
+        uniqueByPackId.set(option.packageId, option);
+      }
+    }
+
+    formStrengthOptions.value = Array.from(uniqueByPackId.values())
+      .sort((a, b) => a.label.localeCompare(b.label, "sv"));
 
     if (formStrengthOptions.value.length === 0) {
-      const fallback = await createFallbackOptionFromPackage(basePackageId.trim());
+      const fallbackBaseId = sourceIds[0] ?? packageId.value.trim();
+      const fallback = await createFallbackOptionFromPackage(fallbackBaseId);
       formStrengthOptions.value = [fallback];
     }
 
@@ -235,8 +382,84 @@ async function loadFormStrengthOptions(basePackageId: string) {
   }
 }
 
+async function handleMedicineSearch() {
+  if (!medicineQuery.value.trim()) {
+    error.value = "Skriv ett läkemedelsnamn.";
+    return;
+  }
+
+  loadingMedicineSearch.value = true;
+  error.value = "";
+  selectedMedicineLabel.value = "";
+
+  try {
+    const rawResults = await searchDrug(medicineQuery.value.trim());
+    const normalized = rawResults
+      .map((item) => {
+        const selectedPackageId = packageIdFromSearchItem(item);
+        if (!selectedPackageId) {
+          return null;
+        }
+        return {
+          packageId: selectedPackageId,
+          label: labelFromSearchItem(item),
+        };
+      })
+      .filter((item): item is { packageId: string; label: string } => item !== null);
+
+    const unique = new Map<string, { packageId: string; label: string }>();
+    for (const item of normalized) {
+      if (!unique.has(item.packageId)) {
+        unique.set(item.packageId, item);
+      }
+    }
+
+    const candidates = Array.from(unique.values()).slice(0, 20);
+
+    if (candidates.length === 0) {
+      error.value = "Inga läkemedel hittades för sökningen.";
+      return;
+    }
+
+    const first = candidates[0];
+    const normalizedFirstLabel = first.label.trim().toLowerCase();
+    const relatedSourceIds = candidates
+      .filter((item) => item.label.trim().toLowerCase() === normalizedFirstLabel)
+      .map((item) => item.packageId);
+
+    await selectMedicine(first, relatedSourceIds);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Okänt fel";
+    error.value = `Kunde inte söka läkemedel: ${message}`;
+  } finally {
+    loadingMedicineSearch.value = false;
+  }
+}
+
+async function selectMedicine(
+  item: { packageId: string; label: string },
+  relatedSourceIds: string[] = [],
+) {
+  const sourceIds = Array.from(new Set([item.packageId, ...relatedSourceIds]));
+  packageId.value = sourceIds[0];
+  medicineQuery.value = item.label;
+  selectedMedicineLabel.value = sourceIds.length > 1
+    ? `${item.label} (${sourceIds.length} varianter)`
+    : item.label;
+  hasSearched.value = false;
+  rows.value = [];
+  unavailableStrengths.value = [];
+  await loadFormStrengthOptions(sourceIds);
+  await checkStock();
+}
+
 async function checkStock() {
   hasSearched.value = true;
+
+  if (!formStrengthOptions.value.length && !packageId.value.trim()) {
+    error.value = "Sök och välj ett läkemedel först.";
+    return;
+  }
 
   if (!zipCode.value.trim()) {
     error.value = "Ange postnummer.";
@@ -247,16 +470,26 @@ async function checkStock() {
   error.value = "";
   unavailableStrengths.value = [];
 
+  const optionsToCheck = formStrengthOptions.value.length > 0
+    ? formStrengthOptions.value
+    : [
+        {
+          id: `${packageId.value.trim()}:fallback`,
+          label: packageId.value.trim(),
+          packageId: packageId.value.trim(),
+        } as FormStrengthOption,
+      ];
+
   try {
-    const optionsToCheck = formStrengthOptions.value.length > 0
-      ? formStrengthOptions.value
-      : [
-          {
-            id: `${packageId.value.trim()}:fallback`,
-            label: packageId.value.trim(),
-            packageId: packageId.value.trim(),
-          } as FormStrengthOption,
-        ];
+    try {
+      const geocode = await geocodeZip(zipCode.value.trim());
+      searchCenter.value = {
+        latitude: geocode.latitude,
+        longitude: geocode.longitude,
+      };
+    } catch {
+      searchCenter.value = null;
+    }
 
     const variants = optionsToCheck.map((option) => ({
       packageId: option.packageId,
@@ -276,32 +509,79 @@ async function checkStock() {
       cache: "no-store",
     });
 
-    const payload = await response.json();
     if (!response.ok) {
-      throw new Error(payload?.error || "Kunde inte hämta lagerstatus.");
+      throw new Error("server route missing");
     }
 
-    rows.value = Array.isArray(payload?.rows) ? payload.rows : [];
+    const payload = await response.json();
+    const incomingRows = Array.isArray(payload?.rows) ? payload.rows : [];
+    allRows.value = incomingRows;
+    rows.value = applyRadiusFilter(allRows.value);
     unavailableStrengths.value = Array.isArray(payload?.unavailableStrengths)
       ? payload.unavailableStrengths
       : [];
+  } catch {
+    const builtRows: Array<{
+      key: string;
+      pharmacy: Pharmacy;
+      strengthLabel: string;
+      packageType: string;
+      stockInformation: string;
+      inStock: boolean;
+    }> = [];
 
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Okänt fel";
-    error.value = `Kunde inte hämta lagerstatus: ${message}`;
-  } finally {
+    const failedStrengths: string[] = [];
+
+    for (const option of optionsToCheck) {
+      try {
+        const packageRows = await getPharmaciesWithStock({
+          packageId: option.packageId,
+          zipCode: zipCode.value.trim(),
+          limit: 60,
+        });
+
+        for (const item of packageRows) {
+          builtRows.push({
+            key: `${item.pharmacy.glnCode}-${option.id}`,
+            pharmacy: item.pharmacy,
+            strengthLabel: optionDisplayLabel(option),
+            packageType: option.packageType ?? packageTypeFromStrengthLabel(optionDisplayLabel(option)),
+            stockInformation: item.stock?.stockInformation ?? "UNKNOWN",
+            inStock: item.inStock,
+          });
+        }
+      } catch {
+        failedStrengths.push(optionDisplayLabel(option));
+      }
+    }
+
+    allRows.value = builtRows;
+    rows.value = applyRadiusFilter(allRows.value);
+    unavailableStrengths.value = failedStrengths;
+  }
+
+  finally {
     loading.value = false;
   }
 }
 
 async function applyPrefillFromRouteQuery() {
+  const queryMedicine = route.query.medicine;
   const queryPackageId = route.query.packageId;
   const queryZipCode = route.query.zipCode;
   const queryAutostart = route.query.autostart;
 
+  if (typeof queryMedicine === "string" && queryMedicine.trim()) {
+    medicineQuery.value = queryMedicine.trim();
+    if (queryAutostart === "1") {
+      await handleMedicineSearch();
+      return;
+    }
+  }
+
   if (typeof queryPackageId === "string" && queryPackageId.trim()) {
     packageId.value = queryPackageId.trim();
-    await loadFormStrengthOptions(packageId.value);
+    await loadFormStrengthOptions([packageId.value]);
   }
 
   if (typeof queryZipCode === "string" && queryZipCode.trim()) {
@@ -314,11 +594,7 @@ async function applyPrefillFromRouteQuery() {
 }
 
 onMounted(async () => {
-  await loadFormStrengthOptions(packageId.value);
   await applyPrefillFromRouteQuery();
-  if (!hasSearched.value) {
-    await checkStock();
-  }
 });
 
 watch(
@@ -327,6 +603,10 @@ watch(
     await applyPrefillFromRouteQuery();
   },
 );
+
+watch(selectedRadiusKm, () => {
+  rows.value = applyRadiusFilter(allRows.value);
+});
 </script>
 
 <template>
@@ -340,8 +620,35 @@ watch(
     <p v-if="loadingOptions" class="info">Laddar läkemedelsformer och styrkor...</p>
 
     <div class="controls-card">
+      <label for="medicine">Läkemedel</label>
+      <div class="medicine-search-row">
+        <input
+          id="medicine"
+          v-model="medicineQuery"
+          type="text"
+          placeholder="t.ex. Estradot"
+          @keyup.enter="handleMedicineSearch"
+        />
+        <button type="button" :disabled="loadingMedicineSearch || loadingOptions" @click="handleMedicineSearch">
+          {{ loadingMedicineSearch ? "Söker..." : "Sök läkemedel" }}
+        </button>
+      </div>
+
+      <p v-if="selectedMedicineLabel" class="medicine-results">
+        Vald träff: <strong>{{ selectedMedicineLabel }}</strong>
+      </p>
+
       <label for="zip">Postnummer</label>
       <input id="zip" v-model="zipCode" type="text" placeholder="t.ex. 11122" />
+
+      <label for="radius">Sökradie</label>
+      <select id="radius" v-model.number="selectedRadiusKm">
+        <option :value="10">10 km</option>
+        <option :value="20">20 km</option>
+        <option :value="30">30 km</option>
+        <option :value="40">40 km</option>
+        <option :value="50">50 km</option>
+      </select>
 
       <div>
         <button type="button" :disabled="loading" @click="checkStock">
@@ -401,7 +708,7 @@ watch(
     <p v-if="!loading && hasResultsInOtherFilters()" class="info">
       Tips: välj <strong>Kontakta apotek</strong> eller <strong>Alla statusar</strong>.
     </p>
-    <p v-else-if="!loading && (hasSearched || zipCode.trim().length > 0)" class="info">
+    <p v-else-if="!loading && hasSearched" class="info">
       Inga träffar för vald sökning (eller tillfälligt tomt svar från Fass).
     </p>
     <p v-else-if="!loading" class="info">Ange postnummer och klicka på Sök lagerstatus.</p>
@@ -480,6 +787,27 @@ button {
   color: #fff;
   font-weight: 600;
   cursor: pointer;
+}
+
+.medicine-search-row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.medicine-search-row input {
+  max-width: none;
+}
+
+.medicine-search-row button {
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.medicine-results {
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+  color: var(--muted);
 }
 
 .table-wrapper {
