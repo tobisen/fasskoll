@@ -88,9 +88,13 @@ export default async function handler(req, res) {
       category: upstream.status >= 400 ? "upstream_error" : "request",
       message: upstream.status >= 400 ? "Upstream returned error status" : "OK",
       success: upstream.status < 400,
+      upstreamCalls: 1,
+      cacheHits: 0,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown proxy error";
+    const isCircuitOpen =
+      isFassServiceError(error) && error.code === "CIRCUIT_OPEN";
     const status =
       isFassServiceError(error) && typeof error.status === "number" && error.status >= 400
         ? error.status
@@ -99,9 +103,11 @@ export default async function handler(req, res) {
     await recordTrafficEvent({
       route: "content",
       status,
-      category: "proxy_error",
+      category: isCircuitOpen ? "circuit_open" : "proxy_error",
       message,
       success: false,
+      upstreamCalls: 1,
+      cacheHits: 0,
     });
   }
 }

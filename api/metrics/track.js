@@ -23,11 +23,10 @@ export default async function handler(req, res) {
   const key = hashVisitorId(visitorId);
 
   state.pageViews += 1;
-  state.visitors[key] = true;
+  state.visitors[key] = { lastSeenAt: Date.now() };
   state.updatedAt = new Date().toISOString();
 
   await writeMetricsState(state);
 
   res.status(200).json({ ok: true });
 }
-

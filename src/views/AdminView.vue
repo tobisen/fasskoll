@@ -15,6 +15,9 @@ type RouteStats = {
   failed: number;
   rateLimited: number;
   killSwitch: number;
+  circuitOpen: number;
+  upstreamCalls: number;
+  cacheHits: number;
 };
 
 type TrafficSummary = {
@@ -40,6 +43,19 @@ type PeakSummary = {
   topPeaks: Array<{ minute: string; count: number }>;
 };
 
+type FassServiceSummary = {
+  requestTimeoutMs: number;
+  maxTotalRequestTimeMs: number;
+  retryMaxAttempts: number;
+  circuitBreakerThreshold: number;
+  circuitBreakerCooldownMs: number;
+  circuitOpen: boolean;
+  circuitOpenUntil: string | null;
+  consecutiveFailures: number;
+  circuitOpenedCount: number;
+  lastCircuitOpenedAt: string | null;
+};
+
 const loading = ref(false);
 const error = ref("");
 const uniqueVisitors = ref<number>(0);
@@ -48,8 +64,26 @@ const updatedAt = ref<string | null>(null);
 const traffic = ref<TrafficSummary>({
   totalRequests: 0,
   byRoute: {
-    content: { requests: 0, success: 0, failed: 0, rateLimited: 0, killSwitch: 0 },
-    stock: { requests: 0, success: 0, failed: 0, rateLimited: 0, killSwitch: 0 },
+    content: {
+      requests: 0,
+      success: 0,
+      failed: 0,
+      rateLimited: 0,
+      killSwitch: 0,
+      circuitOpen: 0,
+      upstreamCalls: 0,
+      cacheHits: 0,
+    },
+    stock: {
+      requests: 0,
+      success: 0,
+      failed: 0,
+      rateLimited: 0,
+      killSwitch: 0,
+      circuitOpen: 0,
+      upstreamCalls: 0,
+      cacheHits: 0,
+    },
   },
   recentErrors: [],
 });
@@ -59,6 +93,18 @@ const peaks = ref<PeakSummary>({
   requestsLastHour: 0,
   requestsLast24h: 0,
   topPeaks: [],
+});
+const fassService = ref<FassServiceSummary>({
+  requestTimeoutMs: 0,
+  maxTotalRequestTimeMs: 0,
+  retryMaxAttempts: 0,
+  circuitBreakerThreshold: 0,
+  circuitBreakerCooldownMs: 0,
+  circuitOpen: false,
+  circuitOpenUntil: null,
+  consecutiveFailures: 0,
+  circuitOpenedCount: 0,
+  lastCircuitOpenedAt: null,
 });
 
 const isAdmin = computed(
@@ -121,6 +167,9 @@ async function loadSummary() {
           failed: safeNumber(byRoute?.content?.failed),
           rateLimited: safeNumber(byRoute?.content?.rateLimited),
           killSwitch: safeNumber(byRoute?.content?.killSwitch),
+          circuitOpen: safeNumber(byRoute?.content?.circuitOpen),
+          upstreamCalls: safeNumber(byRoute?.content?.upstreamCalls),
+          cacheHits: safeNumber(byRoute?.content?.cacheHits),
         },
         stock: {
           requests: safeNumber(byRoute?.stock?.requests),
@@ -128,6 +177,9 @@ async function loadSummary() {
           failed: safeNumber(byRoute?.stock?.failed),
           rateLimited: safeNumber(byRoute?.stock?.rateLimited),
           killSwitch: safeNumber(byRoute?.stock?.killSwitch),
+          circuitOpen: safeNumber(byRoute?.stock?.circuitOpen),
+          upstreamCalls: safeNumber(byRoute?.stock?.upstreamCalls),
+          cacheHits: safeNumber(byRoute?.stock?.cacheHits),
         },
       },
       recentErrors: Array.isArray(incomingTraffic?.recentErrors)
@@ -142,6 +194,26 @@ async function loadSummary() {
       requestsLastHour: safeNumber(incomingPeaks?.requestsLastHour),
       requestsLast24h: safeNumber(incomingPeaks?.requestsLast24h),
       topPeaks: Array.isArray(incomingPeaks?.topPeaks) ? incomingPeaks.topPeaks.slice(0, 5) : [],
+    };
+
+    const incomingFassService = payload?.fassService ?? {};
+    fassService.value = {
+      requestTimeoutMs: safeNumber(incomingFassService?.requestTimeoutMs),
+      maxTotalRequestTimeMs: safeNumber(incomingFassService?.maxTotalRequestTimeMs),
+      retryMaxAttempts: safeNumber(incomingFassService?.retryMaxAttempts),
+      circuitBreakerThreshold: safeNumber(incomingFassService?.circuitBreakerThreshold),
+      circuitBreakerCooldownMs: safeNumber(incomingFassService?.circuitBreakerCooldownMs),
+      circuitOpen: Boolean(incomingFassService?.circuitOpen),
+      circuitOpenUntil:
+        typeof incomingFassService?.circuitOpenUntil === "string"
+          ? incomingFassService.circuitOpenUntil
+          : null,
+      consecutiveFailures: safeNumber(incomingFassService?.consecutiveFailures),
+      circuitOpenedCount: safeNumber(incomingFassService?.circuitOpenedCount),
+      lastCircuitOpenedAt:
+        typeof incomingFassService?.lastCircuitOpenedAt === "string"
+          ? incomingFassService.lastCircuitOpenedAt
+          : null,
     };
   } catch (err) {
     error.value = err instanceof Error ? err.message : "Okänt fel";
@@ -208,6 +280,10 @@ watch(
           <h2>Topp RPM (24h)</h2>
           <p class="stat-value">{{ peaks.peakRequestsPerMinuteLast24h }}</p>
         </article>
+        <article class="stat-card">
+          <h2>Circuit breaker</h2>
+          <p class="stat-value">{{ fassService.circuitOpen ? "Öppen" : "Stängd" }}</p>
+        </article>
       </div>
 
       <p class="meta">Senast uppdaterad: {{ formatDate(updatedAt) }}</p>
@@ -229,6 +305,9 @@ watch(
               <th>Fel</th>
               <th>Rate limit</th>
               <th>Kill switch</th>
+              <th>Circuit open</th>
+              <th>Mot Fass</th>
+              <th>Från cache</th>
             </tr>
           </thead>
           <tbody>
@@ -239,6 +318,53 @@ watch(
               <td>{{ row.failed }}</td>
               <td>{{ row.rateLimited }}</td>
               <td>{{ row.killSwitch }}</td>
+              <td>{{ row.circuitOpen }}</td>
+              <td>{{ row.upstreamCalls }}</td>
+              <td>{{ row.cacheHits }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 class="section-title">Fass service-läge</h2>
+      <div class="table-wrap">
+        <table>
+          <tbody>
+            <tr>
+              <th>Timeout per försök</th>
+              <td>{{ fassService.requestTimeoutMs }} ms</td>
+            </tr>
+            <tr>
+              <th>Max total requesttid</th>
+              <td>{{ fassService.maxTotalRequestTimeMs }} ms</td>
+            </tr>
+            <tr>
+              <th>Max retries</th>
+              <td>{{ fassService.retryMaxAttempts }}</td>
+            </tr>
+            <tr>
+              <th>Circuit tröskel</th>
+              <td>{{ fassService.circuitBreakerThreshold }}</td>
+            </tr>
+            <tr>
+              <th>Circuit cooldown</th>
+              <td>{{ fassService.circuitBreakerCooldownMs }} ms</td>
+            </tr>
+            <tr>
+              <th>Consecutive failures</th>
+              <td>{{ fassService.consecutiveFailures }}</td>
+            </tr>
+            <tr>
+              <th>Antal öppningar</th>
+              <td>{{ fassService.circuitOpenedCount }}</td>
+            </tr>
+            <tr>
+              <th>Senast öppnad</th>
+              <td>{{ formatDate(fassService.lastCircuitOpenedAt) }}</td>
+            </tr>
+            <tr>
+              <th>Öppen till</th>
+              <td>{{ formatDate(fassService.circuitOpenUntil) }}</td>
             </tr>
           </tbody>
         </table>

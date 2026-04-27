@@ -89,6 +89,7 @@ function buildRowsFromCachedPackages(zipCode, variants) {
   const rows = [];
   const unavailableStrengths = [];
   let usedAnyCache = false;
+  let cacheHits = 0;
 
   for (const variant of variants) {
     const cacheKey = `${zipCode}|${variant.packageId}`;
@@ -99,6 +100,7 @@ function buildRowsFromCachedPackages(zipCode, variants) {
     }
 
     usedAnyCache = true;
+    cacheHits += 1;
     for (const baseRow of cached.data.baseRows) {
       rows.push({
         ...baseRow,
@@ -108,7 +110,7 @@ function buildRowsFromCachedPackages(zipCode, variants) {
     }
   }
 
-  return { rows, unavailableStrengths, usedAnyCache };
+  return { rows, unavailableStrengths, usedAnyCache, cacheHits };
 }
 
 async function getZipContext(zipCode) {
@@ -119,7 +121,7 @@ async function getZipContext(zipCode) {
     ZIP_CONTEXT_CACHE_TTL_MS,
   );
   if (cached) {
-    return cached.data;
+    return { ...cached.data, fromCache: true };
   }
 
   const geocode = await fetchFassJson(
@@ -138,14 +140,20 @@ async function getZipContext(zipCode) {
 
   const data = { list, glnCodes };
   zipContextCache.set(cacheKey, { ts: Date.now(), data });
-  return data;
+  return { ...data, fromCache: false };
 }
 
 async function getStockRowsForPackageAndZip({ zipCode, packageId, zipContext }) {
   const cacheKey = `${zipCode}|${packageId}`;
   const fresh = getFreshCacheEntry(packageZipCache, cacheKey, STOCK_CACHE_TTL_MS);
   if (fresh) {
-    return { baseRows: fresh.data.baseRows, fromCache: true, fromStaleCache: false };
+    return {
+      baseRows: fresh.data.baseRows,
+      fromCache: true,
+      fromStaleCache: false,
+      upstreamCalls: 0,
+      cacheHits: 1,
+    };
   }
 
   const previous = packageZipCache.get(cacheKey);
@@ -171,10 +179,22 @@ async function getStockRowsForPackageAndZip({ zipCode, packageId, zipContext }) 
 
     packageZipCache.set(cacheKey, { ts: Date.now(), data: { baseRows } });
     maybeCleanupCaches();
-    return { baseRows, fromCache: false, fromStaleCache: false };
+    return {
+      baseRows,
+      fromCache: false,
+      fromStaleCache: false,
+      upstreamCalls: 1,
+      cacheHits: 0,
+    };
   } catch (error) {
     if (previous?.data?.baseRows) {
-      return { baseRows: previous.data.baseRows, fromCache: true, fromStaleCache: true };
+      return {
+        baseRows: previous.data.baseRows,
+        fromCache: true,
+        fromStaleCache: true,
+        upstreamCalls: 1,
+        cacheHits: 1,
+      };
     }
     throw error;
   }
@@ -257,9 +277,16 @@ export default async function handler(req, res) {
   const variants = variantsResult.variants;
 
   try {
+    let requestUpstreamCalls = 0;
+    let requestCacheHits = 0;
     let zipContext;
     try {
       zipContext = await getZipContext(normalizedZip);
+      if (zipContext.fromCache) {
+        requestCacheHits += 1;
+      } else {
+        requestUpstreamCalls += 2; // geocode + pharmacy
+      }
     } catch (zipError) {
       const fallback = buildRowsFromCachedPackages(normalizedZip, variants);
       if (fallback.usedAnyCache) {
@@ -277,6 +304,8 @@ export default async function handler(req, res) {
           category: "degraded_cache",
           message: "Served stale cache after zip context failure",
           success: true,
+          upstreamCalls: requestUpstreamCalls,
+          cacheHits: requestCacheHits + fallback.cacheHits,
         });
         return;
       }
@@ -297,6 +326,8 @@ export default async function handler(req, res) {
           packageId: pkgId,
           zipContext,
         });
+        requestUpstreamCalls += stockRows.upstreamCalls;
+        requestCacheHits += stockRows.cacheHits;
         usedAnyCache = usedAnyCache || stockRows.fromCache;
 
         for (const baseRow of stockRows.baseRows) {
@@ -332,9 +363,13 @@ export default async function handler(req, res) {
           ? `Partial response. Failed strengths: ${unavailableStrengths.length}`
           : "OK",
       success: true,
+      upstreamCalls: requestUpstreamCalls,
+      cacheHits: requestCacheHits,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Okänt fel";
+    const isCircuitOpen =
+      isFassServiceError(error) && error.code === "CIRCUIT_OPEN";
     const status =
       isFassServiceError(error) && typeof error.status === "number" && error.status >= 400
         ? error.status
@@ -343,7 +378,7 @@ export default async function handler(req, res) {
     await recordTrafficEvent({
       route: "stock",
       status,
-      category: "upstream_error",
+      category: isCircuitOpen ? "circuit_open" : "upstream_error",
       message,
       success: false,
     });

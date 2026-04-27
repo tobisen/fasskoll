@@ -1,4 +1,5 @@
 import {
+  isTrustedSameOriginRequest,
   setSessionCookie,
   verifyCredentials,
 } from "./_session.js";
@@ -6,6 +7,11 @@ import {
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  if (!isTrustedSameOriginRequest(req)) {
+    res.status(403).json({ ok: false, error: "Ogiltigt origin-header." });
     return;
   }
 

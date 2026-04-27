@@ -2,6 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const METRICS_FILE = path.join("/tmp", "fasskoll-metrics.json");
+const VISITOR_RETENTION_DAYS = Math.max(
+  1,
+  Math.min(Number(process.env.METRICS_VISITOR_RETENTION_DAYS) || 30, 365),
+);
+const VISITOR_RETENTION_MS = VISITOR_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
 function initialState() {
   return {
@@ -17,6 +22,9 @@ function initialState() {
           failed: 0,
           rateLimited: 0,
           killSwitch: 0,
+          circuitOpen: 0,
+          upstreamCalls: 0,
+          cacheHits: 0,
         },
         stock: {
           requests: 0,
@@ -24,12 +32,46 @@ function initialState() {
           failed: 0,
           rateLimited: 0,
           killSwitch: 0,
+          circuitOpen: 0,
+          upstreamCalls: 0,
+          cacheHits: 0,
         },
       },
       minuteBuckets: {},
       recentErrors: [],
     },
   };
+}
+
+function normalizeVisitors(raw) {
+  if (!raw || typeof raw !== "object") return {};
+
+  const now = Date.now();
+  const normalized = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof key !== "string" || key.length === 0) continue;
+
+    // Backward compatible: old format stored boolean true.
+    let lastSeenAt = 0;
+    if (value === true) {
+      lastSeenAt = now;
+    } else if (typeof value === "number" && Number.isFinite(value)) {
+      lastSeenAt = value;
+    } else if (
+      value &&
+      typeof value === "object" &&
+      typeof value.lastSeenAt === "number" &&
+      Number.isFinite(value.lastSeenAt)
+    ) {
+      lastSeenAt = value.lastSeenAt;
+    }
+
+    if (lastSeenAt <= 0) continue;
+    if (now - lastSeenAt > VISITOR_RETENTION_MS) continue;
+    normalized[key] = { lastSeenAt };
+  }
+
+  return normalized;
 }
 
 function normalizeRouteStats(raw) {
@@ -49,6 +91,9 @@ function normalizeRouteStats(raw) {
     failed: typeof raw.failed === "number" ? raw.failed : 0,
     rateLimited: typeof raw.rateLimited === "number" ? raw.rateLimited : 0,
     killSwitch: typeof raw.killSwitch === "number" ? raw.killSwitch : 0,
+    circuitOpen: typeof raw.circuitOpen === "number" ? raw.circuitOpen : 0,
+    upstreamCalls: typeof raw.upstreamCalls === "number" ? raw.upstreamCalls : 0,
+    cacheHits: typeof raw.cacheHits === "number" ? raw.cacheHits : 0,
   };
 }
 
@@ -94,7 +139,7 @@ function normalizeTraffic(raw) {
 function normalizeState(raw) {
   if (!raw || typeof raw !== "object") return initialState();
   const pageViews = typeof raw.pageViews === "number" ? raw.pageViews : 0;
-  const visitors = raw.visitors && typeof raw.visitors === "object" ? raw.visitors : {};
+  const visitors = normalizeVisitors(raw.visitors);
   const updatedAt =
     typeof raw.updatedAt === "string" || raw.updatedAt === null ? raw.updatedAt : null;
   const traffic = normalizeTraffic(raw.traffic);

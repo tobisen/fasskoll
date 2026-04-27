@@ -48,9 +48,29 @@ const hardeningItems: Item[] = [
     details: "Central service på backend + isolerat klientlager på frontend.",
   },
   {
+    title: "Härda session-cookie",
+    status: "implemented",
+    details: "Session-cookie använder HttpOnly, Secure (prod/https), SameSite=Strict och explicit Max-Age.",
+  },
+  {
+    title: "Rotera session vid login",
+    status: "implemented",
+    details: "Ny signerad sessiontoken skapas vid varje inloggning (inklusive nonce/iat).",
+  },
+  {
+    title: "CSRF-skydd på auth-anrop",
+    status: "implemented",
+    details: "SameSite=Strict kombineras med origin-validering för login/logout.",
+  },
+  {
     title: "Kör via egen backend/proxy (inte direkt från frontend)",
     status: "implemented",
     details: "All Fass-trafik går via /api/content och /api/stock.",
+  },
+  {
+    title: "Proxy allowlist strikt (endast Fass-endpoints)",
+    status: "implemented",
+    details: "Proxy validerar origin, https, path-prefix och blockerar endpoint-override.",
   },
   {
     title: "Inför hård rate limiting per användare/IP",
@@ -73,6 +93,11 @@ const hardeningItems: Item[] = [
     details: "Timeout, retry/backoff/jitter och uppströmsfel är centraliserat hanterat.",
   },
   {
+    title: "Max total requesttid verifierad",
+    status: "implemented",
+    details: "Service-lagret stoppar retry-kedjor när total tidsbudget nås.",
+  },
+  {
     title: "Bygg kill switch för att snabbt stänga av tjänsten",
     status: "implemented",
     details: "Env-styrd kill switch returnerar 503 direkt på Fass-routes.",
@@ -83,9 +108,19 @@ const hardeningItems: Item[] = [
     details: "Metrics samlar trafik, felhistorik och peak-minute i admin.",
   },
   {
+    title: "Visa circuit breaker-läge i admin",
+    status: "implemented",
+    details: "Admin visar om kretsen är öppen/stängd, tröskel, cooldown och antal öppningar.",
+  },
+  {
+    title: "Visa upstream vs cache i admin",
+    status: "implemented",
+    details: "Admin visar antal anrop mot Fass och antal svar från cache per endpoint.",
+  },
+  {
     title: "Begränsa antal sökningar per minut/session",
     status: "partial",
-    details: "Per IP finns. Per session kan läggas till som nästa steg.",
+    details: "Per IP finns. För autentiserade användare återstår finmaskig per-session/per-user kvotering.",
   },
   {
     title: "Validera all input strikt (zip, packageId)",
@@ -110,7 +145,7 @@ const hardeningItems: Item[] = [
   {
     title: "Minimera datalagring",
     status: "implemented",
-    details: "Besöksdata är aggregerad/hashtad och vi sparar begränsad recent error-historik.",
+    details: "Besöksdata lagras hashat med retention/pruning och feltexter saneras för att minska PII-risk.",
   },
   {
     title: "Designa för att API:t kan ändras eller blockeras",
@@ -251,4 +286,3 @@ h1 {
   background: #ffedd5;
 }
 </style>
-

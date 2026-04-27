@@ -97,8 +97,11 @@ export function listConfiguredUsernames() {
 }
 
 export function createSessionToken(username) {
+  const nonce = crypto.randomBytes(16).toString("hex");
   const payload = {
     username,
+    nonce,
+    iat: Date.now(),
     exp: Date.now() + MAX_AGE_SECONDS * 1000,
   };
   const encodedPayload = base64url(JSON.stringify(payload));
@@ -110,6 +113,34 @@ function shouldUseSecureCookie(req) {
   if (process.env.NODE_ENV === "production") return true;
   const proto = req.headers?.["x-forwarded-proto"];
   return proto === "https";
+}
+
+function normalizeOrigin(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+export function isTrustedSameOriginRequest(req) {
+  const originHeader = req.headers?.origin;
+  const hostHeader = req.headers?.host;
+  const protoHeader = req.headers?.["x-forwarded-proto"];
+
+  const origin = normalizeOrigin(originHeader);
+  if (!origin) return true;
+  if (typeof hostHeader !== "string" || !hostHeader.trim()) return false;
+
+  const protocol = protoHeader === "http" || protoHeader === "https"
+    ? protoHeader
+    : process.env.NODE_ENV === "production"
+      ? "https"
+      : "http";
+  const expectedOrigin = `${protocol}://${hostHeader}`;
+
+  return timingSafeEqualString(origin, expectedOrigin);
 }
 
 export function parseSession(req) {
@@ -139,7 +170,7 @@ export function setSessionCookie(req, res, username) {
     `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Lax",
+    "SameSite=Strict",
     `Max-Age=${MAX_AGE_SECONDS}`,
   ];
   if (shouldUseSecureCookie(req)) parts.push("Secure");
@@ -152,7 +183,7 @@ export function clearSessionCookie(req, res) {
     `${SESSION_COOKIE_NAME}=`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Lax",
+    "SameSite=Strict",
     "Max-Age=0",
   ];
   if (shouldUseSecureCookie(req)) parts.push("Secure");

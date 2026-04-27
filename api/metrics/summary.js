@@ -1,5 +1,6 @@
 import { parseSession } from "../auth/_session.js";
 import { readMetricsState } from "./_store.js";
+import { getFassServiceRuntimeState } from "../services/fassService.js";
 
 function safeNumber(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -81,6 +82,9 @@ export default async function handler(req, res) {
           failed: safeNumber(byRoute.content?.failed),
           rateLimited: safeNumber(byRoute.content?.rateLimited),
           killSwitch: safeNumber(byRoute.content?.killSwitch),
+          circuitOpen: safeNumber(byRoute.content?.circuitOpen),
+          upstreamCalls: safeNumber(byRoute.content?.upstreamCalls),
+          cacheHits: safeNumber(byRoute.content?.cacheHits),
         },
         stock: {
           requests: safeNumber(byRoute.stock?.requests),
@@ -88,11 +92,15 @@ export default async function handler(req, res) {
           failed: safeNumber(byRoute.stock?.failed),
           rateLimited: safeNumber(byRoute.stock?.rateLimited),
           killSwitch: safeNumber(byRoute.stock?.killSwitch),
+          circuitOpen: safeNumber(byRoute.stock?.circuitOpen),
+          upstreamCalls: safeNumber(byRoute.stock?.upstreamCalls),
+          cacheHits: safeNumber(byRoute.stock?.cacheHits),
         },
       },
       recentErrors,
     },
     peaks,
+    fassService: getFassServiceRuntimeState(),
     updatedAt: state.updatedAt || null,
     source: "internal",
   });

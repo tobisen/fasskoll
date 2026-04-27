@@ -1,8 +1,13 @@
 const FASS_PROXY_BASE = "https://fass.se/api/content?endpoint=";
-const FASS_ALLOWED_PREFIX = "https://cms.fass.se/api/vard/";
+const FASS_ALLOWED_ORIGIN = "https://cms.fass.se";
+const FASS_ALLOWED_PATH_PREFIX = "/api/vard/";
 const REQUEST_TIMEOUT_MS = Math.max(
   2_000,
   Math.min(Number(process.env.FASS_REQUEST_TIMEOUT_MS) || 8_000, 20_000),
+);
+const MAX_TOTAL_REQUEST_TIME_MS = Math.max(
+  4_000,
+  Math.min(Number(process.env.FASS_MAX_TOTAL_REQUEST_TIME_MS) || 15_000, 60_000),
 );
 const RETRY_MAX_ATTEMPTS = Math.max(
   1,
@@ -41,6 +46,8 @@ class FassServiceError extends Error {
 const breakerState = {
   consecutiveFailures: 0,
   openedUntil: 0,
+  openedCount: 0,
+  lastOpenedAt: null,
 };
 
 function buildFassHeaders(requestHeaders = {}, contentTypeOverride) {
@@ -76,6 +83,10 @@ function retryDelayMs(attempt) {
   return expo + jitter;
 }
 
+function remainingBudgetMs(startedAt) {
+  return MAX_TOTAL_REQUEST_TIME_MS - (Date.now() - startedAt);
+}
+
 function isRetryableStatus(status) {
   return status === 408 || status === 429 || (status >= 500 && status <= 599);
 }
@@ -100,9 +111,17 @@ function isCircuitOpen() {
 
 function markFailure() {
   breakerState.consecutiveFailures += 1;
-  if (breakerState.consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+  let openedNow = false;
+  if (
+    breakerState.consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD &&
+    !isCircuitOpen()
+  ) {
     breakerState.openedUntil = Date.now() + CIRCUIT_BREAKER_COOLDOWN_MS;
+    breakerState.openedCount += 1;
+    breakerState.lastOpenedAt = new Date().toISOString();
+    openedNow = true;
   }
+  return { openedNow };
 }
 
 function markSuccess() {
@@ -148,7 +167,45 @@ function toNumber(value) {
 }
 
 export function isAllowedFassEndpoint(endpoint) {
-  return typeof endpoint === "string" && endpoint.startsWith(FASS_ALLOWED_PREFIX);
+  if (typeof endpoint !== "string" || endpoint.trim().length === 0) {
+    return false;
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(endpoint.trim());
+  } catch {
+    return false;
+  }
+
+  if (parsed.origin !== FASS_ALLOWED_ORIGIN) return false;
+  if (parsed.protocol !== "https:") return false;
+  if (parsed.username || parsed.password) return false;
+  if (parsed.hash) return false;
+  if (!parsed.pathname.startsWith(FASS_ALLOWED_PATH_PREFIX)) return false;
+  if (parsed.searchParams.has("endpoint")) return false;
+
+  return true;
+}
+
+export function getFassServiceRuntimeState() {
+  const now = Date.now();
+  const openUntil = breakerState.openedUntil;
+  return {
+    requestTimeoutMs: REQUEST_TIMEOUT_MS,
+    maxTotalRequestTimeMs: MAX_TOTAL_REQUEST_TIME_MS,
+    retryMaxAttempts: RETRY_MAX_ATTEMPTS,
+    retryBaseDelayMs: RETRY_BASE_DELAY_MS,
+    retryMaxDelayMs: RETRY_MAX_DELAY_MS,
+    retryJitterMs: RETRY_JITTER_MS,
+    circuitBreakerThreshold: CIRCUIT_BREAKER_THRESHOLD,
+    circuitBreakerCooldownMs: CIRCUIT_BREAKER_COOLDOWN_MS,
+    circuitOpen: openUntil > now,
+    circuitOpenUntil: openUntil > now ? new Date(openUntil).toISOString() : null,
+    consecutiveFailures: breakerState.consecutiveFailures,
+    circuitOpenedCount: breakerState.openedCount,
+    lastCircuitOpenedAt: breakerState.lastOpenedAt,
+  };
 }
 
 export async function forwardFassRequest({
@@ -158,6 +215,7 @@ export async function forwardFassRequest({
   requestHeaders = {},
   contentTypeOverride,
 }) {
+  const startedAt = Date.now();
   if (isCircuitOpen()) {
     throw new FassServiceError(
       "Fass-kopplingen är tillfälligt pausad efter upprepade fel. Försök igen snart.",
@@ -170,8 +228,18 @@ export async function forwardFassRequest({
   let lastError = null;
 
   for (let attempt = 1; attempt <= RETRY_MAX_ATTEMPTS; attempt += 1) {
+    const budgetBeforeAttempt = remainingBudgetMs(startedAt);
+    if (budgetBeforeAttempt <= 0) {
+      throw new FassServiceError(
+        `Fass timeout efter total budget ${MAX_TOTAL_REQUEST_TIME_MS} ms`,
+        "TOTAL_TIMEOUT",
+        504,
+      );
+    }
+
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const attemptTimeoutMs = Math.min(REQUEST_TIMEOUT_MS, budgetBeforeAttempt);
+    const timeoutId = setTimeout(() => controller.abort(), attemptTimeoutMs);
     try {
       const upstream = await fetch(upstreamUrl, {
         method,
@@ -188,7 +256,15 @@ export async function forwardFassRequest({
 
       if (isRetryableStatus(upstream.status) && attempt < RETRY_MAX_ATTEMPTS) {
         const retryAfter = parseRetryAfterMs(upstream.headers.get("retry-after"));
-        await sleep(retryAfter ?? retryDelayMs(attempt));
+        const delay = retryAfter ?? retryDelayMs(attempt);
+        if (remainingBudgetMs(startedAt) <= delay) {
+          throw new FassServiceError(
+            `Fass timeout efter total budget ${MAX_TOTAL_REQUEST_TIME_MS} ms`,
+            "TOTAL_TIMEOUT",
+            504,
+          );
+        }
+        await sleep(delay);
         continue;
       }
 
@@ -201,15 +277,26 @@ export async function forwardFassRequest({
       clearTimeout(timeoutId);
       lastError = error;
       if (attempt < RETRY_MAX_ATTEMPTS) {
-        await sleep(retryDelayMs(attempt));
+        const delay = retryDelayMs(attempt);
+        if (remainingBudgetMs(startedAt) <= delay) {
+          throw new FassServiceError(
+            `Fass timeout efter total budget ${MAX_TOTAL_REQUEST_TIME_MS} ms`,
+            "TOTAL_TIMEOUT",
+            504,
+          );
+        }
+        await sleep(delay);
         continue;
       }
     }
   }
 
-  if (isAbortError(lastError)) {
+  if (
+    isAbortError(lastError) ||
+    (lastError instanceof FassServiceError && lastError.code === "TOTAL_TIMEOUT")
+  ) {
     throw new FassServiceError(
-      `Fass timeout efter ${REQUEST_TIMEOUT_MS} ms`,
+      `Fass timeout efter total budget ${MAX_TOTAL_REQUEST_TIME_MS} ms`,
       "TIMEOUT",
       504,
     );
@@ -233,7 +320,10 @@ export async function fetchFassJson(endpoint, options = {}) {
   } catch (error) {
     if (
       isFassServiceError(error) &&
-      (error.code === "NETWORK" || error.code === "TIMEOUT" || error.code === "CIRCUIT_OPEN")
+      (error.code === "NETWORK" ||
+        error.code === "TIMEOUT" ||
+        error.code === "TOTAL_TIMEOUT" ||
+        error.code === "CIRCUIT_OPEN")
     ) {
       markFailure();
     }

@@ -76,21 +76,27 @@ Tjänsten är uttryckligen markerad som **ej officiell**.
 ### 5.1 Autentisering och session
 - Inloggning via `/api/auth/login`
 - Lösenord verifieras med PBKDF2-SHA256 (hash + salt), ej klartext
-- Session-cookie är signerad (HMAC), HttpOnly, SameSite=Lax
+- Session-cookie är signerad (HMAC), HttpOnly, Secure (prod/https), SameSite=Strict, Max-Age
+- Session roteras vid login (ny signerad token med nonce/iat)
 - Secure-cookie aktiveras i produktion/https
 - Stöd för flera användare via `AUTH_USERS_JSON` (inkl. admin)
 
-### 5.2 Inputvalidering
+### 5.2 CSRF-skydd
+- SameSite=Strict på session-cookie
+- Origin-kontroll på state-changing auth-anrop (`/api/auth/login`, `/api/auth/logout`)
+
+### 5.3 Inputvalidering
 - Strikt validering i `api/stock.js`:
   - `zipCode`: exakt 5 siffror
   - `packageId`: endast siffror, längd 6–20
   - max antal varianter per request (skydd mot överbelastning)
 
-### 5.3 Endpoint-skydd
-- `api/content` tillåter endast endpoint-prefix: `https://cms.fass.se/api/vard/`
+### 5.4 Endpoint-skydd
+- `api/content` tillåter endast `https://cms.fass.se/api/vard/...`
+- Strikt URL-validering: origin, schema, path-prefix och blockering av endpoint-override
 - Blockerar godtyckliga proxymål
 
-### 5.4 Åtkomstkontroll
+### 5.5 Åtkomstkontroll
 - Admin-endpoints kräver giltig session med användare `admin`
 - Oinloggade användare får begränsad funktionalitet
 
@@ -113,11 +119,13 @@ I service-lagret:
 - Max retries default: 3
 - Exponentiell backoff + jitter
 - Retry för 408/429/5xx
+- Max total requesttid över hela retry-kedjan: default 15s (`FASS_MAX_TOTAL_REQUEST_TIME_MS`)
 
 ### 6.4 Circuit breaker
 - Öppnar efter upprepade fel (default tröskel: 6)
 - Cooldown default: 120s
 - Hindrar request-storm mot en redan instabil upstream
+- Circuit breaker-händelser loggas och status visas i admin
 
 ### 6.5 Kill switch
 - Miljövariabelstyrd snabbavstängning (`FASSKOLL_KILL_SWITCH`)
@@ -133,6 +141,7 @@ I service-lagret:
 - Traffic/fel loggas i intern metrics-store
 - `byRoute`, `recentErrors`, `minuteBuckets` för toppanalys
 - Admin-sammanställning via `/api/metrics/summary`
+- Admin visar även antal anrop mot Fass (upstream) vs cacheträffar
 
 ### 7.2 Besöksmätning
 - Pageviews + unika besökare via `/api/metrics/track`
@@ -141,6 +150,8 @@ I service-lagret:
 ### 7.3 Dataminimering
 - Ingen full användarprofilering
 - Aggregerad trafikdata och begränsad felhistorik
+- Visitor-data är hashad och retentionstyrd med pruning
+- Felmeddelanden i metrics saneras/trunkeras för att minska PII-risk
 - Metrics lagras i runtime-fil (`/tmp/fasskoll-metrics.json`) och är driftteknisk
 
 ## 8. Kvarvarande risker / kända begränsningar
@@ -193,12 +204,14 @@ I service-lagret:
 - `FASS_STOCK_CACHE_TTL_MS=5400000` (90 min)
 - `FASS_ZIP_CACHE_TTL_MS=5400000` (90 min)
 - `FASS_REQUEST_TIMEOUT_MS=8000`
+- `FASS_MAX_TOTAL_REQUEST_TIME_MS=15000`
 - `FASS_RETRY_MAX_ATTEMPTS=3`
 - `FASS_RETRY_BASE_DELAY_MS=250`
 - `FASS_RETRY_MAX_DELAY_MS=2200`
 - `FASS_RETRY_JITTER_MS=180`
 - `FASS_CIRCUIT_BREAKER_THRESHOLD=6`
 - `FASS_CIRCUIT_BREAKER_COOLDOWN_MS=120000`
+- `METRICS_VISITOR_RETENTION_DAYS=30`
 
 ## 11. Samlad hardening-status
 
@@ -209,12 +222,19 @@ Implementerat:
 - Fasta publika menyalternativ för utvalda läkemedel
 - Centraliserat Fass service/client-lager
 - Backend-proxy (ingen direkt frontend->Fass i prod)
+- Strikt proxy allowlist (origin/schema/path + override-skydd)
 - Hård rate limiting för oinloggade
 - Cache med TTL per packageId+zip
 - Endast användartriggade anrop (ingen polling)
 - Timeout/retries/felhantering
+- Max total requesttid över retry-kedja
 - Kill switch
 - Trafik/fel/topp-loggning
+- Circuit breaker loggas och exponeras i admin
+- Admin visar upstream-anrop vs cacheträffar
+- Session-cookie härdad (HttpOnly/Secure/SameSite=Strict/Max-Age)
+- Sessionrotation vid login
+- CSRF-skydd (SameSite=Strict + origin-kontroll)
 - Strikt inputvalidering
 - Fallback när Fass inte svarar
 - Isolerade typer/mappers
