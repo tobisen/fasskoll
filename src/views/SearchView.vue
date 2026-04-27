@@ -55,6 +55,7 @@ const selectedMedicineLabel = ref("");
 const loadingMedicineSearch = ref(false);
 const selectedRadiusKm = ref(10);
 const searchCenter = ref<{ latitude: number; longitude: number } | null>(null);
+const PUBLIC_MEDICINES = new Set(["estradot", "lenzetto", "divigel", "estrogel"]);
 
 const STOCK_GROUP_LABELS: Record<string, string> = {
   IN_STOCK: "I lager",
@@ -388,8 +389,12 @@ async function loadFormStrengthOptions(sourcePackageIds: string[]) {
 }
 
 async function handleMedicineSearch() {
-  if (!props.isLoggedIn) {
-    error.value = "Logga in för att söka valfria läkemedel. Estradot är tillgängligt utan inloggning.";
+  const normalizedQuery = medicineQuery.value.trim().toLowerCase();
+  const guestAllowedMedicine = PUBLIC_MEDICINES.has(normalizedQuery);
+
+  if (!props.isLoggedIn && !guestAllowedMedicine) {
+    error.value =
+      "Logga in för att söka valfria läkemedel. Estradot, Lenzetto, Divigel och Estrogel är tillgängliga utan inloggning.";
     return;
   }
 
@@ -581,16 +586,19 @@ async function applyPrefillFromRouteQuery() {
   const queryZipCode = route.query.zipCode;
   const queryAutostart = route.query.autostart;
 
-  if (!props.isLoggedIn) {
-    medicineQuery.value = "Estradot";
-  }
+  if (typeof queryMedicine === "string" && queryMedicine.trim()) {
+    const requestedMedicine = queryMedicine.trim();
+    const isPublicMedicine = PUBLIC_MEDICINES.has(requestedMedicine.toLowerCase());
 
-  if (props.isLoggedIn && typeof queryMedicine === "string" && queryMedicine.trim()) {
-    medicineQuery.value = queryMedicine.trim();
-    if (queryAutostart === "1") {
-      await handleMedicineSearch();
-      return;
+    if (props.isLoggedIn || isPublicMedicine) {
+      medicineQuery.value = requestedMedicine;
+      if (queryAutostart === "1") {
+        await handleMedicineSearch();
+        return;
+      }
     }
+  } else if (!props.isLoggedIn) {
+    medicineQuery.value = "Estradot";
   }
 
   if (typeof queryPackageId === "string" && queryPackageId.trim()) {
@@ -628,7 +636,7 @@ watch(selectedRadiusKm, () => {
     <header class="page-header">
       <p class="eyebrow">Fasskoll Regionläge</p>
       <h1>Sök lagerstatus</h1>
-      <p>Liveöversikt över apoteksstatus för Estradot, med fokus på tillgängliga alternativ.</p>
+      <p>Liveöversikt över apoteksstatus för Estradot, Lenzetto, Divigel och Estrogel, med fokus på tillgängliga alternativ.</p>
     </header>
 
     <p v-if="loadingOptions" class="info">Laddar läkemedelsformer och styrkor...</p>
@@ -650,7 +658,7 @@ watch(selectedRadiusKm, () => {
         </div>
       </template>
       <div v-else class="info">
-        Publikt läge: endast <strong>Estradot</strong> är tillgängligt utan inloggning.
+        Publikt läge: <strong>Estradot</strong>, <strong>Lenzetto</strong>, <strong>Divigel</strong> och <strong>Estrogel</strong> är tillgängliga utan inloggning.
       </div>
 
       <p v-if="selectedMedicineLabel" class="medicine-results">

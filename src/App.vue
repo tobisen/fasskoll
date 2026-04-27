@@ -177,6 +177,42 @@ watch(
         >
           Estradot
         </router-link>
+        <router-link
+          :to="{
+            path: '/search',
+            query: {
+              medicine: 'Lenzetto',
+              zipCode: '75318',
+              autostart: '1',
+            },
+          }"
+        >
+          Lenzetto
+        </router-link>
+        <router-link
+          :to="{
+            path: '/search',
+            query: {
+              medicine: 'Divigel',
+              zipCode: '75318',
+              autostart: '1',
+            },
+          }"
+        >
+          Divigel
+        </router-link>
+        <router-link
+          :to="{
+            path: '/search',
+            query: {
+              medicine: 'Estrogel',
+              zipCode: '75318',
+              autostart: '1',
+            },
+          }"
+        >
+          Estrogel
+        </router-link>
         <router-link v-if="currentUsername === 'admin'" to="/admin">Admin</router-link>
       </nav>
 
