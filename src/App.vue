@@ -105,12 +105,7 @@ async function handleLogin() {
   }
 }
 
-function handleHomeClick() {
-  if (isLoggedIn.value) {
-    window.location.href = "/";
-    return;
-  }
-
+function resetLoginPanel() {
   username.value = "";
   password.value = "";
   error.value = "";
@@ -159,9 +154,7 @@ watch(
   <div class="site">
     <header class="site-header">
       <div class="header-left">
-        <button class="brand brand-button" type="button" @click="handleHomeClick">
-          Fasskoll
-        </button>
+        <router-link class="brand brand-link" to="/" @click="resetLoginPanel">Fasskoll</router-link>
       </div>
 
       <nav class="header-center">
@@ -171,6 +164,7 @@ watch(
             query: {
               medicine: 'Estradot',
               zipCode: '75318',
+              autostart: '1',
             },
           }"
         >
@@ -182,6 +176,7 @@ watch(
             query: {
               medicine: 'Lenzetto',
               zipCode: '75318',
+              autostart: '1',
             },
           }"
         >
@@ -193,6 +188,7 @@ watch(
             query: {
               medicine: 'Divigel',
               zipCode: '75318',
+              autostart: '1',
             },
           }"
         >
@@ -204,12 +200,14 @@ watch(
             query: {
               medicine: 'Estrogel',
               zipCode: '75318',
+              autostart: '1',
             },
           }"
         >
           Estrogel
         </router-link>
         <router-link v-if="currentUsername === 'admin'" to="/admin">Admin</router-link>
+        <router-link v-if="currentUsername === 'admin'" to="/admin/hardening">Skydd</router-link>
       </nav>
 
       <div class="header-right">
@@ -289,12 +287,9 @@ watch(
   letter-spacing: 0.02em;
 }
 
-.brand-button {
-  border: none;
-  background: transparent;
+.brand-link {
   color: var(--text);
-  padding: 0;
-  cursor: pointer;
+  text-decoration: none;
 }
 
 .header-center a,

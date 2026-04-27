@@ -56,6 +56,7 @@ const loadingMedicineSearch = ref(false);
 const selectedRadiusKm = ref(10);
 const searchCenter = ref<{ latitude: number; longitude: number } | null>(null);
 const PUBLIC_MEDICINES = new Set(["estradot", "lenzetto", "divigel", "estrogel"]);
+const infoMessage = ref("");
 
 const STOCK_GROUP_LABELS: Record<string, string> = {
   IN_STOCK: "I lager",
@@ -483,6 +484,7 @@ async function checkStock() {
 
   loading.value = true;
   error.value = "";
+  infoMessage.value = "";
   unavailableStrengths.value = [];
 
   const optionsToCheck = formStrengthOptions.value.length > 0
@@ -525,7 +527,11 @@ async function checkStock() {
     });
 
     if (!response.ok) {
-      throw new Error("server route missing");
+      const details = await response
+        .json()
+        .then((json) => (typeof json?.error === "string" ? json.error : "Okänt fel"))
+        .catch(() => "Okänt fel");
+      throw new Error(details);
     }
 
     const payload = await response.json();
@@ -535,7 +541,12 @@ async function checkStock() {
     unavailableStrengths.value = Array.isArray(payload?.unavailableStrengths)
       ? payload.unavailableStrengths
       : [];
-  } catch {
+
+    if (payload?.degraded === true || payload?.staleFallback === true) {
+      infoMessage.value =
+        "Fass svarar inte fullt ut just nu. Visar senast tillgängliga cachedata.";
+    }
+  } catch (primaryError) {
     const builtRows: Array<{
       key: string;
       pharmacy: Pharmacy;
@@ -573,6 +584,15 @@ async function checkStock() {
     allRows.value = builtRows;
     rows.value = applyRadiusFilter(allRows.value);
     unavailableStrengths.value = failedStrengths;
+
+    if (builtRows.length > 0) {
+      infoMessage.value =
+        "Fass svarade inte fullt ut. Visar fallbackdata från reservflödet.";
+    } else {
+      const details =
+        primaryError instanceof Error ? primaryError.message : "Okänt fel från Fass";
+      error.value = `Kunde inte hämta lagerstatus just nu: ${details}`;
+    }
   }
 
   finally {
@@ -584,6 +604,7 @@ async function applyPrefillFromRouteQuery() {
   const queryMedicine = route.query.medicine;
   const queryPackageId = route.query.packageId;
   const queryZipCode = route.query.zipCode;
+  const queryAutostart = route.query.autostart;
 
   if (typeof queryMedicine === "string" && queryMedicine.trim()) {
     const requestedMedicine = queryMedicine.trim();
@@ -591,6 +612,10 @@ async function applyPrefillFromRouteQuery() {
 
     if (props.isLoggedIn || isPublicMedicine) {
       medicineQuery.value = requestedMedicine;
+      if (queryAutostart === "1") {
+        await handleMedicineSearch();
+        return;
+      }
     }
   } else if (!props.isLoggedIn) {
     medicineQuery.value = "Estradot";
@@ -679,6 +704,7 @@ watch(selectedRadiusKm, () => {
       </div>
 
       <p v-if="error" class="error-text">{{ error }}</p>
+      <p v-if="!error && infoMessage" class="warn-text">{{ infoMessage }}</p>
       <p v-if="!error && unavailableStrengths.length > 0" class="warn-text">
         Ingen data just nu för: {{ unavailableStrengths.join(", ") }}
       </p>

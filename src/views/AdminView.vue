@@ -9,15 +9,68 @@ const props = withDefaults(
   },
 );
 
+type RouteStats = {
+  requests: number;
+  success: number;
+  failed: number;
+  rateLimited: number;
+  killSwitch: number;
+};
+
+type TrafficSummary = {
+  totalRequests: number;
+  byRoute: {
+    content: RouteStats;
+    stock: RouteStats;
+  };
+  recentErrors: Array<{
+    timestamp: string;
+    route: string;
+    status: number | null;
+    category: string;
+    message: string;
+  }>;
+};
+
+type PeakSummary = {
+  peakRequestsPerMinuteLastHour: number;
+  peakRequestsPerMinuteLast24h: number;
+  requestsLastHour: number;
+  requestsLast24h: number;
+  topPeaks: Array<{ minute: string; count: number }>;
+};
+
 const loading = ref(false);
 const error = ref("");
-const uniqueVisitors = ref<number | null>(null);
-const pageViews = ref<number | null>(null);
+const uniqueVisitors = ref<number>(0);
+const pageViews = ref<number>(0);
 const updatedAt = ref<string | null>(null);
+const traffic = ref<TrafficSummary>({
+  totalRequests: 0,
+  byRoute: {
+    content: { requests: 0, success: 0, failed: 0, rateLimited: 0, killSwitch: 0 },
+    stock: { requests: 0, success: 0, failed: 0, rateLimited: 0, killSwitch: 0 },
+  },
+  recentErrors: [],
+});
+const peaks = ref<PeakSummary>({
+  peakRequestsPerMinuteLastHour: 0,
+  peakRequestsPerMinuteLast24h: 0,
+  requestsLastHour: 0,
+  requestsLast24h: 0,
+  topPeaks: [],
+});
 
 const isAdmin = computed(
   () => props.isLoggedIn && props.currentUsername === "admin",
 );
+
+const routeRows = computed(() => [
+  { route: "content", ...traffic.value.byRoute.content },
+  { route: "stock", ...traffic.value.byRoute.stock },
+]);
+
+const errorCount = computed(() => traffic.value.recentErrors.length);
 
 function formatDate(value: string | null) {
   if (!value) return "-";
@@ -30,6 +83,10 @@ function formatDate(value: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function safeNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 async function loadSummary() {
@@ -49,9 +106,43 @@ async function loadSummary() {
     }
 
     const payload = await response.json();
-    uniqueVisitors.value = Number(payload?.uniqueVisitors ?? 0);
-    pageViews.value = Number(payload?.pageViews ?? 0);
+    uniqueVisitors.value = safeNumber(payload?.uniqueVisitors);
+    pageViews.value = safeNumber(payload?.pageViews);
     updatedAt.value = typeof payload?.updatedAt === "string" ? payload.updatedAt : null;
+
+    const incomingTraffic = payload?.traffic ?? {};
+    const byRoute = incomingTraffic?.byRoute ?? {};
+    traffic.value = {
+      totalRequests: safeNumber(incomingTraffic?.totalRequests),
+      byRoute: {
+        content: {
+          requests: safeNumber(byRoute?.content?.requests),
+          success: safeNumber(byRoute?.content?.success),
+          failed: safeNumber(byRoute?.content?.failed),
+          rateLimited: safeNumber(byRoute?.content?.rateLimited),
+          killSwitch: safeNumber(byRoute?.content?.killSwitch),
+        },
+        stock: {
+          requests: safeNumber(byRoute?.stock?.requests),
+          success: safeNumber(byRoute?.stock?.success),
+          failed: safeNumber(byRoute?.stock?.failed),
+          rateLimited: safeNumber(byRoute?.stock?.rateLimited),
+          killSwitch: safeNumber(byRoute?.stock?.killSwitch),
+        },
+      },
+      recentErrors: Array.isArray(incomingTraffic?.recentErrors)
+        ? incomingTraffic.recentErrors.slice(0, 20)
+        : [],
+    };
+
+    const incomingPeaks = payload?.peaks ?? {};
+    peaks.value = {
+      peakRequestsPerMinuteLastHour: safeNumber(incomingPeaks?.peakRequestsPerMinuteLastHour),
+      peakRequestsPerMinuteLast24h: safeNumber(incomingPeaks?.peakRequestsPerMinuteLast24h),
+      requestsLastHour: safeNumber(incomingPeaks?.requestsLastHour),
+      requestsLast24h: safeNumber(incomingPeaks?.requestsLast24h),
+      topPeaks: Array.isArray(incomingPeaks?.topPeaks) ? incomingPeaks.topPeaks.slice(0, 5) : [],
+    };
   } catch (err) {
     error.value = err instanceof Error ? err.message : "Okänt fel";
   } finally {
@@ -77,8 +168,8 @@ watch(
   <section class="admin-page">
     <header class="admin-header">
       <p class="eyebrow">Admin</p>
-      <h1>Besöksstatistik</h1>
-      <p>Intern mätning för Fasskoll.</p>
+      <h1>Trafik och drift</h1>
+      <p>Översikt över besök, API-trafik, fel och toppar.</p>
     </header>
 
     <section v-if="!isAdmin" class="panel">
@@ -87,23 +178,101 @@ watch(
     </section>
 
     <section v-else class="panel">
+      <div class="toolbar-links">
+        <span class="tab-link active">Trafik & drift</span>
+        <router-link class="tab-link" to="/admin/hardening">Blockeringsskydd</router-link>
+      </div>
+
       <div class="stats-grid">
         <article class="stat-card">
           <h2>Unika besökare</h2>
-          <p class="stat-value">{{ uniqueVisitors ?? "-" }}</p>
+          <p class="stat-value">{{ uniqueVisitors }}</p>
         </article>
-
         <article class="stat-card">
           <h2>Sidvisningar</h2>
-          <p class="stat-value">{{ pageViews ?? "-" }}</p>
+          <p class="stat-value">{{ pageViews }}</p>
+        </article>
+        <article class="stat-card">
+          <h2>API-anrop totalt</h2>
+          <p class="stat-value">{{ traffic.totalRequests }}</p>
+        </article>
+        <article class="stat-card">
+          <h2>Fel (senaste logg)</h2>
+          <p class="stat-value">{{ errorCount }}</p>
+        </article>
+        <article class="stat-card">
+          <h2>Topp RPM (1h)</h2>
+          <p class="stat-value">{{ peaks.peakRequestsPerMinuteLastHour }}</p>
+        </article>
+        <article class="stat-card">
+          <h2>Topp RPM (24h)</h2>
+          <p class="stat-value">{{ peaks.peakRequestsPerMinuteLast24h }}</p>
         </article>
       </div>
 
       <p class="meta">Senast uppdaterad: {{ formatDate(updatedAt) }}</p>
 
-      <button type="button" :disabled="loading" @click="loadSummary">
-        {{ loading ? "Laddar..." : "Uppdatera" }}
-      </button>
+      <div class="toolbar">
+        <button type="button" :disabled="loading" @click="loadSummary">
+          {{ loading ? "Laddar..." : "Uppdatera" }}
+        </button>
+      </div>
+
+      <h2 class="section-title">Trafik per endpoint</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Endpoint</th>
+              <th>Anrop</th>
+              <th>OK</th>
+              <th>Fel</th>
+              <th>Rate limit</th>
+              <th>Kill switch</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in routeRows" :key="row.route">
+              <td>/api/{{ row.route }}</td>
+              <td>{{ row.requests }}</td>
+              <td>{{ row.success }}</td>
+              <td>{{ row.failed }}</td>
+              <td>{{ row.rateLimited }}</td>
+              <td>{{ row.killSwitch }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="two-col">
+        <section>
+          <h2 class="section-title">Toppminuter</h2>
+          <ul class="list">
+            <li v-for="item in peaks.topPeaks" :key="`${item.minute}-${item.count}`">
+              <span>{{ item.minute }}</span>
+              <strong>{{ item.count }} req/min</strong>
+            </li>
+            <li v-if="peaks.topPeaks.length === 0">Inga toppdata ännu.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 class="section-title">Senaste fel</h2>
+          <ul class="list">
+            <li v-for="item in traffic.recentErrors" :key="`${item.timestamp}-${item.route}-${item.message}`">
+              <div>
+                <strong>{{ item.route }}</strong>
+                <span class="small"> {{ formatDate(item.timestamp) }}</span>
+              </div>
+              <div class="small">
+                {{ item.category }}<span v-if="item.status"> ({{ item.status }})</span>
+              </div>
+              <div>{{ item.message }}</div>
+            </li>
+            <li v-if="traffic.recentErrors.length === 0">Inga fel loggade.</li>
+          </ul>
+        </section>
+      </div>
 
       <p v-if="error" class="error">{{ error }}</p>
     </section>
@@ -142,7 +311,7 @@ h1 {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(170px, 1fr));
+  grid-template-columns: repeat(3, minmax(170px, 1fr));
   gap: 0.9rem;
 }
 
@@ -172,6 +341,32 @@ h1 {
   color: var(--muted);
 }
 
+.toolbar-links {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 0.8rem;
+}
+
+.tab-link {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.45rem 0.7rem;
+  text-decoration: none;
+  color: var(--text);
+  background: var(--surface-strong);
+  font-weight: 700;
+}
+
+.tab-link.active {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-strong) 100%);
+  color: #fff;
+  border-color: transparent;
+}
+
+.toolbar {
+  margin-bottom: 1rem;
+}
+
 button {
   border: none;
   border-radius: 10px;
@@ -182,8 +377,75 @@ button {
   cursor: pointer;
 }
 
+.section-title {
+  margin: 1rem 0 0.6rem;
+  font-size: 1.05rem;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.6rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+}
+
+th {
+  background: var(--surface-strong);
+}
+
+.two-col {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.9rem;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-strong);
+}
+
+.list li {
+  padding: 0.7rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.list li:last-child {
+  border-bottom: none;
+}
+
+.small {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .error {
   margin-top: 0.8rem;
   color: var(--danger);
+}
+
+@media (max-width: 860px) {
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .two-col {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
