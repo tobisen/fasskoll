@@ -20,6 +20,28 @@ const RETRY_JITTER_MS = Math.max(
   0,
   Math.min(Number(process.env.FASS_RETRY_JITTER_MS) || 180, 2_000),
 );
+const CIRCUIT_BREAKER_THRESHOLD = Math.max(
+  1,
+  Math.min(Number(process.env.FASS_CIRCUIT_BREAKER_THRESHOLD) || 6, 50),
+);
+const CIRCUIT_BREAKER_COOLDOWN_MS = Math.max(
+  10_000,
+  Math.min(Number(process.env.FASS_CIRCUIT_BREAKER_COOLDOWN_MS) || 120_000, 900_000),
+);
+
+class FassServiceError extends Error {
+  constructor(message, code, status = null) {
+    super(message);
+    this.name = "FassServiceError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
+const breakerState = {
+  consecutiveFailures: 0,
+  openedUntil: 0,
+};
 
 function buildFassHeaders(requestHeaders = {}, contentTypeOverride) {
   return {
@@ -72,6 +94,22 @@ function parseRetryAfterMs(headerValue) {
   return null;
 }
 
+function isCircuitOpen() {
+  return Date.now() < breakerState.openedUntil;
+}
+
+function markFailure() {
+  breakerState.consecutiveFailures += 1;
+  if (breakerState.consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+    breakerState.openedUntil = Date.now() + CIRCUIT_BREAKER_COOLDOWN_MS;
+  }
+}
+
+function markSuccess() {
+  breakerState.consecutiveFailures = 0;
+  breakerState.openedUntil = 0;
+}
+
 function isAbortError(error) {
   return (
     error &&
@@ -120,6 +158,14 @@ export async function forwardFassRequest({
   requestHeaders = {},
   contentTypeOverride,
 }) {
+  if (isCircuitOpen()) {
+    throw new FassServiceError(
+      "Fass-kopplingen är tillfälligt pausad efter upprepade fel. Försök igen snart.",
+      "CIRCUIT_OPEN",
+      503,
+    );
+  }
+
   const upstreamUrl = `${FASS_PROXY_BASE}${encodeURIComponent(endpoint)}`;
   let lastError = null;
 
@@ -162,36 +208,73 @@ export async function forwardFassRequest({
   }
 
   if (isAbortError(lastError)) {
-    throw new Error(`Fass timeout efter ${REQUEST_TIMEOUT_MS} ms`);
+    throw new FassServiceError(
+      `Fass timeout efter ${REQUEST_TIMEOUT_MS} ms`,
+      "TIMEOUT",
+      504,
+    );
   }
   throw lastError instanceof Error
-    ? new Error(`Kunde inte nå Fass: ${lastError.message}`)
-    : new Error("Kunde inte nå Fass");
+    ? new FassServiceError(`Kunde inte nå Fass: ${lastError.message}`, "NETWORK", 502)
+    : new FassServiceError("Kunde inte nå Fass", "NETWORK", 502);
 }
 
 export async function fetchFassJson(endpoint, options = {}) {
   const { method = "GET", body, requestHeaders = {} } = options;
-  const response = await forwardFassRequest({
-    endpoint,
-    method,
-    body,
-    requestHeaders,
-    contentTypeOverride: "text/plain;charset=UTF-8",
-  });
+  let response;
+  try {
+    response = await forwardFassRequest({
+      endpoint,
+      method,
+      body,
+      requestHeaders,
+      contentTypeOverride: "text/plain;charset=UTF-8",
+    });
+  } catch (error) {
+    if (
+      isFassServiceError(error) &&
+      (error.code === "NETWORK" || error.code === "TIMEOUT" || error.code === "CIRCUIT_OPEN")
+    ) {
+      markFailure();
+    }
+    throw error;
+  }
 
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(asFriendlyUpstreamError(response.status, response.text));
+    if (isRetryableStatus(response.status)) {
+      markFailure();
+    } else if (response.status < 500) {
+      // Client/validation type errors should not open the breaker.
+      markSuccess();
+    }
+    throw new FassServiceError(
+      asFriendlyUpstreamError(response.status, response.text),
+      "UPSTREAM_STATUS",
+      response.status,
+    );
   }
 
   if (isHtmlResponse(response.text)) {
-    throw new Error(asFriendlyUpstreamError(response.status, response.text));
+    markFailure();
+    throw new FassServiceError(
+      asFriendlyUpstreamError(response.status, response.text),
+      "UPSTREAM_HTML",
+      502,
+    );
   }
 
   try {
-    return JSON.parse(response.text);
+    const parsed = JSON.parse(response.text);
+    markSuccess();
+    return parsed;
   } catch {
-    throw new Error("Ogiltigt JSON-svar från Fass");
+    markFailure();
+    throw new FassServiceError("Ogiltigt JSON-svar från Fass", "UPSTREAM_JSON", 502);
   }
+}
+
+export function isFassServiceError(error) {
+  return error instanceof FassServiceError;
 }
 
 export function pickCoordinatesFromGeocode(raw) {

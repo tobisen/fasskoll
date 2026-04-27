@@ -8,6 +8,86 @@ function initialState() {
     pageViews: 0,
     visitors: {},
     updatedAt: null,
+    traffic: {
+      totalRequests: 0,
+      byRoute: {
+        content: {
+          requests: 0,
+          success: 0,
+          failed: 0,
+          rateLimited: 0,
+          killSwitch: 0,
+        },
+        stock: {
+          requests: 0,
+          success: 0,
+          failed: 0,
+          rateLimited: 0,
+          killSwitch: 0,
+        },
+      },
+      minuteBuckets: {},
+      recentErrors: [],
+    },
+  };
+}
+
+function normalizeRouteStats(raw) {
+  if (!raw || typeof raw !== "object") {
+    return {
+      requests: 0,
+      success: 0,
+      failed: 0,
+      rateLimited: 0,
+      killSwitch: 0,
+    };
+  }
+
+  return {
+    requests: typeof raw.requests === "number" ? raw.requests : 0,
+    success: typeof raw.success === "number" ? raw.success : 0,
+    failed: typeof raw.failed === "number" ? raw.failed : 0,
+    rateLimited: typeof raw.rateLimited === "number" ? raw.rateLimited : 0,
+    killSwitch: typeof raw.killSwitch === "number" ? raw.killSwitch : 0,
+  };
+}
+
+function normalizeTraffic(raw) {
+  if (!raw || typeof raw !== "object") {
+    return initialState().traffic;
+  }
+
+  const byRouteRaw = raw.byRoute && typeof raw.byRoute === "object" ? raw.byRoute : {};
+  const minuteBucketsRaw =
+    raw.minuteBuckets && typeof raw.minuteBuckets === "object" ? raw.minuteBuckets : {};
+  const recentErrorsRaw = Array.isArray(raw.recentErrors) ? raw.recentErrors : [];
+
+  const minuteBuckets = {};
+  for (const [key, value] of Object.entries(minuteBucketsRaw)) {
+    if (typeof key !== "string" || typeof value !== "number" || value < 0) continue;
+    minuteBuckets[key] = value;
+  }
+
+  const recentErrors = recentErrorsRaw
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      timestamp:
+        typeof item.timestamp === "string" ? item.timestamp : new Date().toISOString(),
+      route: typeof item.route === "string" ? item.route : "unknown",
+      status: typeof item.status === "number" ? item.status : null,
+      category: typeof item.category === "string" ? item.category : "unknown",
+      message: typeof item.message === "string" ? item.message : "Okänt fel",
+    }))
+    .slice(0, 100);
+
+  return {
+    totalRequests: typeof raw.totalRequests === "number" ? raw.totalRequests : 0,
+    byRoute: {
+      content: normalizeRouteStats(byRouteRaw.content),
+      stock: normalizeRouteStats(byRouteRaw.stock),
+    },
+    minuteBuckets,
+    recentErrors,
   };
 }
 
@@ -17,7 +97,8 @@ function normalizeState(raw) {
   const visitors = raw.visitors && typeof raw.visitors === "object" ? raw.visitors : {};
   const updatedAt =
     typeof raw.updatedAt === "string" || raw.updatedAt === null ? raw.updatedAt : null;
-  return { pageViews, visitors, updatedAt };
+  const traffic = normalizeTraffic(raw.traffic);
+  return { pageViews, visitors, updatedAt, traffic };
 }
 
 export async function readMetricsState() {
@@ -35,4 +116,3 @@ export async function writeMetricsState(state) {
   await fs.writeFile(tmpFile, JSON.stringify(normalized), "utf8");
   await fs.rename(tmpFile, METRICS_FILE);
 }
-
