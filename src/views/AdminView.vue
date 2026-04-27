@@ -117,6 +117,15 @@ const routeRows = computed(() => [
 ]);
 
 const errorCount = computed(() => traffic.value.recentErrors.length);
+const rateLimitedLast15Min = computed(() => {
+  const now = Date.now();
+  const windowMs = 15 * 60 * 1000;
+  return traffic.value.recentErrors.filter((item) => {
+    if (item.category !== "rate_limited") return false;
+    const ts = Date.parse(item.timestamp);
+    return Number.isFinite(ts) && now - ts <= windowMs;
+  }).length;
+});
 
 function formatDate(value: string | null) {
   if (!value) return "-";
@@ -283,6 +292,10 @@ watch(
         <article class="stat-card">
           <h2>Circuit breaker</h2>
           <p class="stat-value">{{ fassService.circuitOpen ? "Öppen" : "Stängd" }}</p>
+        </article>
+        <article class="stat-card">
+          <h2>Rate limit (15 min)</h2>
+          <p class="stat-value">{{ rateLimitedLast15Min }}</p>
         </article>
       </div>
 

@@ -8,6 +8,15 @@ import { enforceRateLimit, getClientIp } from "./security/rateLimit.js";
 import { enforceKillSwitch } from "./security/killSwitch.js";
 import { recordTrafficEvent } from "./metrics/collector.js";
 
+const GUEST_CONTENT_RATE_LIMIT_PER_MIN = Math.max(
+  10,
+  Math.min(Number(process.env.FASS_GUEST_CONTENT_RATE_LIMIT_PER_MIN) || 24, 120),
+);
+const GUEST_CONTENT_BLOCK_MINUTES = Math.max(
+  1,
+  Math.min(Number(process.env.FASS_GUEST_CONTENT_BLOCK_MINUTES) || 3, 60),
+);
+
 export default async function handler(req, res) {
   if (enforceKillSwitch(res)) {
     await recordTrafficEvent({
@@ -26,9 +35,9 @@ export default async function handler(req, res) {
     const limited = enforceRateLimit(req, res, {
       scope: "guest-content",
       key: ip,
-      maxRequests: 8,
+      maxRequests: GUEST_CONTENT_RATE_LIMIT_PER_MIN,
       windowMs: 60_000,
-      blockMs: 10 * 60_000,
+      blockMs: GUEST_CONTENT_BLOCK_MINUTES * 60_000,
     });
     if (!limited.allowed) {
       res.status(429).json({
