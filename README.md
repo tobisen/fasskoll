@@ -56,6 +56,7 @@ Tjänsten är en intern hobbylösning och är tydligt markerad som **ej officiel
   - circuit breaker-status
   - antal anrop mot Fass vs cacheträffar
 - Vercel Analytics aktiverad
+- För produktionspersistent admin-metrics rekommenderas Vercel KV (annars används lokal `/tmp` fallback)
 
 ## Dataminimering
 - Visitor-ID hashas innan lagring
@@ -80,6 +81,9 @@ Tjänsten är en intern hobbylösning och är tydligt markerad som **ej officiel
 - `FASS_CIRCUIT_BREAKER_THRESHOLD`
 - `FASS_CIRCUIT_BREAKER_COOLDOWN_MS`
 - `METRICS_VISITOR_RETENTION_DAYS`
+- `KV_REST_API_URL`
+- `KV_REST_API_TOKEN`
+- `METRICS_KV_KEY`
 
 ## Kör lokalt
 ```bash

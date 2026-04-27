@@ -61,6 +61,7 @@ const error = ref("");
 const uniqueVisitors = ref<number>(0);
 const pageViews = ref<number>(0);
 const updatedAt = ref<string | null>(null);
+const metricsStorage = ref("tmp");
 const traffic = ref<TrafficSummary>({
   totalRequests: 0,
   byRoute: {
@@ -224,6 +225,9 @@ async function loadSummary() {
           ? incomingFassService.lastCircuitOpenedAt
           : null,
     };
+
+    metricsStorage.value =
+      typeof payload?.metricsStorage === "string" ? payload.metricsStorage : "tmp";
   } catch (err) {
     error.value = err instanceof Error ? err.message : "Okänt fel";
   } finally {
@@ -299,7 +303,10 @@ watch(
         </article>
       </div>
 
-      <p class="meta">Senast uppdaterad: {{ formatDate(updatedAt) }}</p>
+      <p class="meta">
+        Senast uppdaterad: {{ formatDate(updatedAt) }} |
+        Metrics-lagring: {{ metricsStorage === "kv" ? "Vercel KV" : "Lokal /tmp (ej persistent i prod)" }}
+      </p>
 
       <div class="toolbar">
         <button type="button" :disabled="loading" @click="loadSummary">

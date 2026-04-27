@@ -2,6 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const METRICS_FILE = path.join("/tmp", "fasskoll-metrics.json");
+const KV_KEY = process.env.METRICS_KV_KEY || "fasskoll:metrics:v1";
+const KV_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || "";
+const KV_TOKEN =
+  process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || "";
 const VISITOR_RETENTION_DAYS = Math.max(
   1,
   Math.min(Number(process.env.METRICS_VISITOR_RETENTION_DAYS) || 30, 365),
@@ -41,6 +45,49 @@ function initialState() {
       recentErrors: [],
     },
   };
+}
+
+function hasKvConfig() {
+  return typeof KV_URL === "string" && KV_URL.length > 0 && typeof KV_TOKEN === "string" && KV_TOKEN.length > 0;
+}
+
+export function getMetricsStorageMode() {
+  return hasKvConfig() ? "kv" : "tmp";
+}
+
+async function runKvCommand(args) {
+  const response = await fetch(KV_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${KV_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(args),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`KV command failed: ${response.status}`);
+  }
+
+  const payload = await response.json();
+  if (!payload || !("result" in payload)) {
+    throw new Error("KV command returned invalid payload");
+  }
+  return payload.result;
+}
+
+async function readStateFromKv() {
+  const raw = await runKvCommand(["GET", KV_KEY]);
+  if (typeof raw !== "string" || raw.length === 0) {
+    return initialState();
+  }
+  return normalizeState(JSON.parse(raw));
+}
+
+async function writeStateToKv(state) {
+  const normalized = normalizeState(state);
+  await runKvCommand(["SET", KV_KEY, JSON.stringify(normalized)]);
 }
 
 function normalizeVisitors(raw) {
@@ -147,6 +194,14 @@ function normalizeState(raw) {
 }
 
 export async function readMetricsState() {
+  if (hasKvConfig()) {
+    try {
+      return await readStateFromKv();
+    } catch {
+      // fallback to local file below
+    }
+  }
+
   try {
     const raw = await fs.readFile(METRICS_FILE, "utf8");
     return normalizeState(JSON.parse(raw));
@@ -156,6 +211,15 @@ export async function readMetricsState() {
 }
 
 export async function writeMetricsState(state) {
+  if (hasKvConfig()) {
+    try {
+      await writeStateToKv(state);
+      return;
+    } catch {
+      // fallback to local file below
+    }
+  }
+
   const normalized = normalizeState(state);
   const tmpFile = `${METRICS_FILE}.tmp`;
   await fs.writeFile(tmpFile, JSON.stringify(normalized), "utf8");

@@ -1,5 +1,5 @@
 import { parseSession } from "../auth/_session.js";
-import { readMetricsState } from "./_store.js";
+import { getMetricsStorageMode, readMetricsState } from "./_store.js";
 import { getFassServiceRuntimeState } from "../services/fassService.js";
 
 function safeNumber(value) {
@@ -101,6 +101,7 @@ export default async function handler(req, res) {
     },
     peaks,
     fassService: getFassServiceRuntimeState(),
+    metricsStorage: getMetricsStorageMode(),
     updatedAt: state.updatedAt || null,
     source: "internal",
   });
