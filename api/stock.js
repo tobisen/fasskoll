@@ -14,9 +14,54 @@ const STOCK_CACHE_TTL_MS =
 const ZIP_CONTEXT_CACHE_TTL_MS =
   Number(process.env.FASS_ZIP_CACHE_TTL_MS) || STOCK_CACHE_TTL_MS;
 const MAX_VARIANTS = 25;
+const SHARED_CACHE_PREFIX = process.env.FASS_SHARED_CACHE_PREFIX || "fasskoll:stockcache:v1";
+const KV_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || "";
+const KV_TOKEN =
+  process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || "";
 
 const packageZipCache = new Map();
 const zipContextCache = new Map();
+
+function hasKvConfig() {
+  return typeof KV_URL === "string" && KV_URL.length > 0 && typeof KV_TOKEN === "string" && KV_TOKEN.length > 0;
+}
+
+function kvKey(namespace, key) {
+  return `${SHARED_CACHE_PREFIX}:${namespace}:${key}`;
+}
+
+async function runKvCommand(args) {
+  const response = await fetch(KV_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${KV_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(args),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`KV command failed: ${response.status}`);
+  }
+  const payload = await response.json();
+  return payload?.result;
+}
+
+async function readSharedCacheEntry(namespace, key) {
+  if (!hasKvConfig()) return null;
+  const raw = await runKvCommand(["GET", kvKey(namespace, key)]);
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object") return null;
+  if (typeof parsed.ts !== "number" || !("data" in parsed)) return null;
+  return parsed;
+}
+
+async function writeSharedCacheEntry(namespace, key, entry, ttlMs) {
+  if (!hasKvConfig()) return;
+  const ttlSeconds = Math.max(1, Math.ceil(ttlMs / 1000));
+  await runKvCommand(["SETEX", kvKey(namespace, key), ttlSeconds, JSON.stringify(entry)]);
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -61,11 +106,34 @@ function normalizeVariants(input) {
   return { variants: normalized };
 }
 
-function getFreshCacheEntry(cacheMap, key, ttlMs) {
-  const entry = cacheMap.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.ts > ttlMs) return null;
-  return entry;
+async function getFreshCacheEntry(cacheMap, namespace, key, ttlMs) {
+  const now = Date.now();
+  const localEntry = cacheMap.get(key);
+  if (localEntry && now - localEntry.ts <= ttlMs) {
+    return localEntry;
+  }
+
+  try {
+    const sharedEntry = await readSharedCacheEntry(namespace, key);
+    if (sharedEntry && now - sharedEntry.ts <= ttlMs) {
+      cacheMap.set(key, sharedEntry);
+      return sharedEntry;
+    }
+  } catch {
+    // ignore shared cache errors and continue without shared cache
+  }
+
+  return null;
+}
+
+async function setFreshCacheEntry(cacheMap, namespace, key, ttlMs, data) {
+  const entry = { ts: Date.now(), data };
+  cacheMap.set(key, entry);
+  try {
+    await writeSharedCacheEntry(namespace, key, entry, ttlMs);
+  } catch {
+    // ignore shared cache write errors
+  }
 }
 
 function maybeCleanupCaches() {
@@ -85,7 +153,7 @@ function maybeCleanupCaches() {
   }
 }
 
-function buildRowsFromCachedPackages(zipCode, variants) {
+async function buildRowsFromCachedPackages(zipCode, variants) {
   const rows = [];
   const unavailableStrengths = [];
   let usedAnyCache = false;
@@ -93,7 +161,12 @@ function buildRowsFromCachedPackages(zipCode, variants) {
 
   for (const variant of variants) {
     const cacheKey = `${zipCode}|${variant.packageId}`;
-    const cached = packageZipCache.get(cacheKey);
+    const cached = await getFreshCacheEntry(
+      packageZipCache,
+      "packageZip",
+      cacheKey,
+      STOCK_CACHE_TTL_MS,
+    );
     if (!cached?.data?.baseRows) {
       unavailableStrengths.push(variant.strengthLabel || variant.packageId);
       continue;
@@ -115,8 +188,9 @@ function buildRowsFromCachedPackages(zipCode, variants) {
 
 async function getZipContext(zipCode) {
   const cacheKey = zipCode.trim();
-  const cached = getFreshCacheEntry(
+  const cached = await getFreshCacheEntry(
     zipContextCache,
+    "zipContext",
     cacheKey,
     ZIP_CONTEXT_CACHE_TTL_MS,
   );
@@ -139,13 +213,24 @@ async function getZipContext(zipCode) {
     .filter((x) => typeof x === "string" && x.length > 0);
 
   const data = { list, glnCodes };
-  zipContextCache.set(cacheKey, { ts: Date.now(), data });
+  await setFreshCacheEntry(
+    zipContextCache,
+    "zipContext",
+    cacheKey,
+    ZIP_CONTEXT_CACHE_TTL_MS,
+    data,
+  );
   return { ...data, fromCache: false };
 }
 
 async function getStockRowsForPackageAndZip({ zipCode, packageId, zipContext }) {
   const cacheKey = `${zipCode}|${packageId}`;
-  const fresh = getFreshCacheEntry(packageZipCache, cacheKey, STOCK_CACHE_TTL_MS);
+  const fresh = await getFreshCacheEntry(
+    packageZipCache,
+    "packageZip",
+    cacheKey,
+    STOCK_CACHE_TTL_MS,
+  );
   if (fresh) {
     return {
       baseRows: fresh.data.baseRows,
@@ -177,7 +262,13 @@ async function getStockRowsForPackageAndZip({ zipCode, packageId, zipContext }) 
       };
     });
 
-    packageZipCache.set(cacheKey, { ts: Date.now(), data: { baseRows } });
+    await setFreshCacheEntry(
+      packageZipCache,
+      "packageZip",
+      cacheKey,
+      STOCK_CACHE_TTL_MS,
+      { baseRows },
+    );
     maybeCleanupCaches();
     return {
       baseRows,
@@ -288,7 +379,7 @@ export default async function handler(req, res) {
         requestUpstreamCalls += 2; // geocode + pharmacy
       }
     } catch (zipError) {
-      const fallback = buildRowsFromCachedPackages(normalizedZip, variants);
+      const fallback = await buildRowsFromCachedPackages(normalizedZip, variants);
       if (fallback.usedAnyCache) {
         res.status(200).json({
           rows: fallback.rows,
