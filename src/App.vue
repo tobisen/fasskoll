@@ -171,7 +171,6 @@ watch(
             query: {
               medicine: 'Estradot',
               zipCode: '75318',
-              autostart: '1',
             },
           }"
         >
@@ -183,7 +182,6 @@ watch(
             query: {
               medicine: 'Lenzetto',
               zipCode: '75318',
-              autostart: '1',
             },
           }"
         >
@@ -195,7 +193,6 @@ watch(
             query: {
               medicine: 'Divigel',
               zipCode: '75318',
-              autostart: '1',
             },
           }"
         >
@@ -207,7 +204,6 @@ watch(
             query: {
               medicine: 'Estrogel',
               zipCode: '75318',
-              autostart: '1',
             },
           }"
         >

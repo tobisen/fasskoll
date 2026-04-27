@@ -172,6 +172,52 @@ function readJsonBody(req: import("http").IncomingMessage): Promise<Record<strin
 const devAuthPlugin = {
   name: "dev-auth-routes",
   configureServer(server: import("vite").ViteDevServer) {
+    server.middlewares.use("/api/content", async (req, res) => {
+      const method = req.method || "GET";
+      const url = new URL(req.url || "/", "http://localhost");
+      const endpoint = url.searchParams.get("endpoint");
+
+      if (!endpoint || !endpoint.startsWith("https://cms.fass.se/api/vard/")) {
+        sendJson(res, 400, { error: "Endpoint not allowed" });
+        return;
+      }
+
+      try {
+        const upstreamUrl = `https://fass.se/api/content?endpoint=${encodeURIComponent(endpoint)}`;
+        const body = method === "GET" || method === "HEAD" ? undefined : await readJsonBody(req);
+
+        const upstream = await fetch(upstreamUrl, {
+          method,
+          headers: {
+            accept: req.headers.accept || "*/*",
+            "accept-language":
+              req.headers["accept-language"] || "sv-SE,sv;q=0.9,en-US;q=0.8,en;q=0.7",
+            "content-type":
+              req.headers["content-type"] || "text/plain;charset=UTF-8",
+            referer: "https://fass.se/health/pharmacy-stock-status",
+            origin: "https://fass.se",
+            "user-agent": req.headers["user-agent"] || "Mozilla/5.0",
+          },
+          body:
+            method === "GET" || method === "HEAD" || body === undefined
+              ? undefined
+              : JSON.stringify(body),
+          cache: "no-store",
+        });
+
+        const text = await upstream.text();
+        res.statusCode = upstream.status;
+        res.setHeader(
+          "content-type",
+          upstream.headers.get("content-type") || "application/json; charset=utf-8",
+        );
+        res.end(text);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown proxy error";
+        sendJson(res, 502, { error: message });
+      }
+    });
+
     server.middlewares.use("/api/auth/session", (req, res) => {
       if (req.method !== "GET") {
         sendJson(res, 405, { error: "Method not allowed" });
@@ -257,29 +303,4 @@ const devAuthPlugin = {
 
 export default defineConfig({
   plugins: [devAuthPlugin, vue()],
-  server: {
-    proxy: {
-      "/api/content": {
-        target: "https://fass.se",
-        changeOrigin: true,
-        secure: true,
-        headers: {
-          origin: "https://fass.se",
-          referer: "https://fass.se/health/pharmacy-stock-status",
-          accept: "application/json, text/plain, */*",
-        },
-        configure(proxy) {
-          proxy.on("proxyReq", (proxyReq) => {
-            proxyReq.setHeader(
-              "user-agent",
-              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
-            );
-            proxyReq.setHeader("accept-language", "sv-SE,sv;q=0.9,en-US;q=0.8,en;q=0.7");
-            proxyReq.setHeader("origin", "https://fass.se");
-            proxyReq.setHeader("referer", "https://fass.se/health/pharmacy-stock-status");
-          });
-        },
-      },
-    },
-  },
 });

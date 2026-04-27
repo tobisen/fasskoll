@@ -584,7 +584,6 @@ async function applyPrefillFromRouteQuery() {
   const queryMedicine = route.query.medicine;
   const queryPackageId = route.query.packageId;
   const queryZipCode = route.query.zipCode;
-  const queryAutostart = route.query.autostart;
 
   if (typeof queryMedicine === "string" && queryMedicine.trim()) {
     const requestedMedicine = queryMedicine.trim();
@@ -592,10 +591,6 @@ async function applyPrefillFromRouteQuery() {
 
     if (props.isLoggedIn || isPublicMedicine) {
       medicineQuery.value = requestedMedicine;
-      if (queryAutostart === "1") {
-        await handleMedicineSearch();
-        return;
-      }
     }
   } else if (!props.isLoggedIn) {
     medicineQuery.value = "Estradot";
@@ -603,16 +598,16 @@ async function applyPrefillFromRouteQuery() {
 
   if (typeof queryPackageId === "string" && queryPackageId.trim()) {
     packageId.value = queryPackageId.trim();
-    await loadFormStrengthOptions([packageId.value]);
   }
 
   if (typeof queryZipCode === "string" && queryZipCode.trim()) {
     zipCode.value = queryZipCode.trim();
   }
 
-  if (queryAutostart === "1") {
-    await checkStock();
-  }
+  hasSearched.value = false;
+  rows.value = [];
+  allRows.value = [];
+  unavailableStrengths.value = [];
 }
 
 onMounted(async () => {
