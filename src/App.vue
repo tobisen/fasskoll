@@ -2,36 +2,67 @@
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 
-const EXPECTED_USERNAME = "Jenny&Tobbe";
-const EXPECTED_PASSWORD = "VivaLaAi";
-const LOGIN_STORAGE_KEY = "fasskoll_logged_in";
-
 const username = ref("");
 const password = ref("");
 const isLoggedIn = ref(false);
+const authLoading = ref(true);
+const showLoginForm = ref(false);
 const error = ref("");
 const router = useRouter();
 
-function handleLogin() {
-  if (
-    username.value === EXPECTED_USERNAME &&
-    password.value === EXPECTED_PASSWORD
-  ) {
+async function checkSession() {
+  try {
+    const response = await fetch("/api/auth/session", {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      isLoggedIn.value = false;
+      return;
+    }
+
+    const payload = await response.json();
+    isLoggedIn.value = Boolean(payload?.authenticated);
+  } catch {
+    isLoggedIn.value = false;
+  }
+}
+
+async function handleLogin() {
+  error.value = "";
+
+  try {
+    const response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        username: username.value,
+        password: password.value,
+      }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload?.ok) {
+      error.value = "Fel användarnamn eller lösenord.";
+      return;
+    }
+
     isLoggedIn.value = true;
-    localStorage.setItem(LOGIN_STORAGE_KEY, "true");
-    error.value = "";
+    showLoginForm.value = false;
+    password.value = "";
     router.push({
       path: "/search",
       query: {
         medicine: "Estradot",
         zipCode: "75318",
-        autostart: "1",
       },
     });
-    return;
+  } catch {
+    error.value = "Kunde inte logga in just nu. Försök igen.";
   }
-
-  error.value = "Fel användarnamn eller lösenord.";
 }
 
 function handleHomeClick() {
@@ -43,19 +74,35 @@ function handleHomeClick() {
   username.value = "";
   password.value = "";
   error.value = "";
+  showLoginForm.value = false;
 }
 
-function handleLogout() {
+async function handleLogout() {
+  try {
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch {
+    // no-op
+  }
+
   isLoggedIn.value = false;
-  localStorage.removeItem(LOGIN_STORAGE_KEY);
   username.value = "";
   password.value = "";
   error.value = "";
+  showLoginForm.value = false;
   window.location.href = "/";
 }
 
-onMounted(() => {
-  isLoggedIn.value = localStorage.getItem(LOGIN_STORAGE_KEY) === "true";
+function handleLoginLinkClick() {
+  showLoginForm.value = true;
+  error.value = "";
+}
+
+onMounted(async () => {
+  await checkSession();
+  authLoading.value = false;
 });
 </script>
 
@@ -70,7 +117,6 @@ onMounted(() => {
 
       <nav class="header-center">
         <router-link
-          v-if="isLoggedIn"
           :to="{
             path: '/search',
             query: {
@@ -85,15 +131,17 @@ onMounted(() => {
       </nav>
 
       <div class="header-right">
-        <span class="status">
-          {{ isLoggedIn ? "Status: Inloggad" : "Status: Inte inloggad" }}
-        </span>
+        <a v-if="!isLoggedIn && !authLoading" href="#" @click.prevent="handleLoginLinkClick">Logga in</a>
         <a v-if="isLoggedIn" href="#" @click.prevent="handleLogout">Logga ut</a>
       </div>
     </header>
 
     <main class="site-main">
-      <section v-if="!isLoggedIn" class="panel">
+      <section v-if="authLoading" class="panel">
+        <h1>Kontrollerar session...</h1>
+      </section>
+
+      <section v-else-if="!isLoggedIn && showLoginForm" class="panel">
         <h1>Logga in</h1>
         <form class="login-form" @submit.prevent="handleLogin">
           <label for="username">Användarnamn</label>
@@ -107,7 +155,9 @@ onMounted(() => {
         </form>
       </section>
 
-      <router-view v-else />
+      <router-view v-slot="{ Component }">
+        <component :is="Component" :is-logged-in="isLoggedIn" />
+      </router-view>
     </main>
   </div>
 </template>
@@ -165,11 +215,6 @@ onMounted(() => {
   color: var(--primary);
   text-decoration: none;
   font-weight: 700;
-}
-
-.status {
-  font-size: 0.9rem;
-  color: var(--muted);
 }
 
 .site-main {

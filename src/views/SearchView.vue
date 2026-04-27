@@ -12,6 +12,10 @@ import {
   type SearchDrugItem,
 } from "../api/fassClient";
 
+const props = withDefaults(defineProps<{ isLoggedIn?: boolean }>(), {
+  isLoggedIn: false,
+});
+
 const DEFAULT_PACKAGE_ID = "";
 const DEFAULT_ZIP_CODE = "75318";
 
@@ -383,6 +387,11 @@ async function loadFormStrengthOptions(sourcePackageIds: string[]) {
 }
 
 async function handleMedicineSearch() {
+  if (!props.isLoggedIn) {
+    error.value = "Logga in för att söka valfria läkemedel. Estradot är tillgängligt utan inloggning.";
+    return;
+  }
+
   if (!medicineQuery.value.trim()) {
     error.value = "Skriv ett läkemedelsnamn.";
     return;
@@ -571,7 +580,11 @@ async function applyPrefillFromRouteQuery() {
   const queryZipCode = route.query.zipCode;
   const queryAutostart = route.query.autostart;
 
-  if (typeof queryMedicine === "string" && queryMedicine.trim()) {
+  if (!props.isLoggedIn) {
+    medicineQuery.value = "Estradot";
+  }
+
+  if (props.isLoggedIn && typeof queryMedicine === "string" && queryMedicine.trim()) {
     medicineQuery.value = queryMedicine.trim();
     if (queryAutostart === "1") {
       await handleMedicineSearch();
@@ -620,18 +633,23 @@ watch(selectedRadiusKm, () => {
     <p v-if="loadingOptions" class="info">Laddar läkemedelsformer och styrkor...</p>
 
     <div class="controls-card">
-      <label for="medicine">Läkemedel</label>
-      <div class="medicine-search-row">
-        <input
-          id="medicine"
-          v-model="medicineQuery"
-          type="text"
-          placeholder="t.ex. Estradot"
-          @keyup.enter="handleMedicineSearch"
-        />
-        <button type="button" :disabled="loadingMedicineSearch || loadingOptions" @click="handleMedicineSearch">
-          {{ loadingMedicineSearch ? "Söker..." : "Sök läkemedel" }}
-        </button>
+      <template v-if="props.isLoggedIn">
+        <label for="medicine">Läkemedel</label>
+        <div class="medicine-search-row">
+          <input
+            id="medicine"
+            v-model="medicineQuery"
+            type="text"
+            placeholder="t.ex. Estradot"
+            @keyup.enter="handleMedicineSearch"
+          />
+          <button type="button" :disabled="loadingMedicineSearch || loadingOptions" @click="handleMedicineSearch">
+            {{ loadingMedicineSearch ? "Söker..." : "Sök läkemedel" }}
+          </button>
+        </div>
+      </template>
+      <div v-else class="info">
+        Publikt läge: endast <strong>Estradot</strong> är tillgängligt utan inloggning.
       </div>
 
       <p v-if="selectedMedicineLabel" class="medicine-results">
