@@ -1,14 +1,49 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { Analytics } from "@vercel/analytics/vue";
 
 const username = ref("");
 const password = ref("");
 const isLoggedIn = ref(false);
+const currentUsername = ref("");
 const authLoading = ref(true);
 const showLoginForm = ref(false);
 const error = ref("");
 const router = useRouter();
+const route = useRoute();
+
+const VISITOR_ID_STORAGE_KEY = "fasskoll_visitor_id";
+
+function getVisitorId() {
+  const existing = localStorage.getItem(VISITOR_ID_STORAGE_KEY);
+  if (existing && existing.trim()) {
+    return existing;
+  }
+
+  const generated =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  localStorage.setItem(VISITOR_ID_STORAGE_KEY, generated);
+  return generated;
+}
+
+async function trackPageView(pathname: string) {
+  try {
+    await fetch("/api/metrics/track", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        visitorId: getVisitorId(),
+        path: pathname,
+      }),
+      keepalive: true,
+    });
+  } catch {
+    // no-op
+  }
+}
 
 async function checkSession() {
   try {
@@ -25,8 +60,11 @@ async function checkSession() {
 
     const payload = await response.json();
     isLoggedIn.value = Boolean(payload?.authenticated);
+    currentUsername.value =
+      typeof payload?.username === "string" ? payload.username : "";
   } catch {
     isLoggedIn.value = false;
+    currentUsername.value = "";
   }
 }
 
@@ -51,6 +89,8 @@ async function handleLogin() {
     }
 
     isLoggedIn.value = true;
+    currentUsername.value =
+      typeof payload?.username === "string" ? payload.username : "";
     showLoginForm.value = false;
     password.value = "";
     router.push({
@@ -88,6 +128,7 @@ async function handleLogout() {
   }
 
   isLoggedIn.value = false;
+  currentUsername.value = "";
   username.value = "";
   password.value = "";
   error.value = "";
@@ -102,8 +143,16 @@ function handleLoginLinkClick() {
 
 onMounted(async () => {
   await checkSession();
+  await trackPageView(route.fullPath);
   authLoading.value = false;
 });
+
+watch(
+  () => route.fullPath,
+  async (newPath) => {
+    await trackPageView(newPath);
+  },
+);
 </script>
 
 <template>
@@ -128,6 +177,7 @@ onMounted(async () => {
         >
           Estradot
         </router-link>
+        <router-link v-if="currentUsername === 'admin'" to="/admin">Admin</router-link>
       </nav>
 
       <div class="header-right">
@@ -156,9 +206,11 @@ onMounted(async () => {
       </section>
 
       <router-view v-slot="{ Component }">
-        <component :is="Component" :is-logged-in="isLoggedIn" />
+        <component :is="Component" :is-logged-in="isLoggedIn" :current-username="currentUsername" />
       </router-view>
     </main>
+
+    <Analytics />
   </div>
 </template>
 
@@ -186,6 +238,9 @@ onMounted(async () => {
 
 .header-center {
   justify-self: center;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
 }
 
 .header-right {

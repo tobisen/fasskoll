@@ -12,8 +12,9 @@ import {
   type SearchDrugItem,
 } from "../api/fassClient";
 
-const props = withDefaults(defineProps<{ isLoggedIn?: boolean }>(), {
+const props = withDefaults(defineProps<{ isLoggedIn?: boolean; currentUsername?: string }>(), {
   isLoggedIn: false,
+  currentUsername: "",
 });
 
 const DEFAULT_PACKAGE_ID = "";

@@ -13,6 +13,15 @@ const DEV_PASSWORD_SALT = process.env.AUTH_PASSWORD_SALT || "fasskoll-v1-salt";
 const DEV_SESSION_SECRET =
   process.env.AUTH_SESSION_SECRET || "change-me-in-vercel-env";
 const DEV_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
+const devMetricsState: {
+  pageViews: number;
+  visitors: Record<string, true>;
+  updatedAt: string | null;
+} = {
+  pageViews: 0,
+  visitors: {},
+  updatedAt: null,
+};
 
 function getDevUsers() {
   if (process.env.AUTH_USERS_JSON) {
@@ -77,6 +86,10 @@ function verifyCredentials(username: string, password: string) {
   const b = Buffer.from(expected);
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
+}
+
+function hashVisitorId(value: string) {
+  return crypto.createHash("sha256").update(value).digest("hex");
 }
 
 function parseSession(req: import("http").IncomingMessage) {
@@ -198,6 +211,46 @@ const devAuthPlugin = {
       }
       clearSessionCookie(res);
       sendJson(res, 200, { ok: true });
+    });
+
+    server.middlewares.use("/api/metrics/track", async (req, res) => {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { error: "Method not allowed" });
+        return;
+      }
+
+      const body = await readJsonBody(req);
+      const visitorId = typeof body.visitorId === "string" ? body.visitorId.trim() : "";
+      if (!visitorId) {
+        sendJson(res, 400, { error: "visitorId krävs" });
+        return;
+      }
+
+      const key = hashVisitorId(visitorId);
+      devMetricsState.pageViews += 1;
+      devMetricsState.visitors[key] = true;
+      devMetricsState.updatedAt = new Date().toISOString();
+      sendJson(res, 200, { ok: true });
+    });
+
+    server.middlewares.use("/api/metrics/summary", (req, res) => {
+      if (req.method !== "GET") {
+        sendJson(res, 405, { error: "Method not allowed" });
+        return;
+      }
+
+      const session = parseSession(req);
+      if (!session || session.username !== "admin") {
+        sendJson(res, 403, { error: "Forbidden" });
+        return;
+      }
+
+      sendJson(res, 200, {
+        uniqueVisitors: Object.keys(devMetricsState.visitors).length,
+        pageViews: devMetricsState.pageViews,
+        updatedAt: devMetricsState.updatedAt,
+        source: "internal-dev",
+      });
     });
   },
 };
