@@ -29,6 +29,9 @@ function ensureRoute(state, route) {
       circuitOpen: 0,
       upstreamCalls: 0,
       cacheHits: 0,
+      upstream429: 0,
+      upstream4xx: 0,
+      upstream5xx: 0,
     };
   }
   return state.traffic.byRoute[route];
@@ -72,6 +75,15 @@ export async function recordTrafficEvent({
       routeStats.success += 1;
     } else {
       routeStats.failed += 1;
+      if (typeof status === "number") {
+        if (status === 429) {
+          routeStats.upstream429 += 1;
+        } else if (status >= 500 && status <= 599) {
+          routeStats.upstream5xx += 1;
+        } else if (status >= 400 && status <= 499) {
+          routeStats.upstream4xx += 1;
+        }
+      }
       state.traffic.recentErrors.unshift({
         timestamp: new Date().toISOString(),
         route,

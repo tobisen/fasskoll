@@ -29,6 +29,9 @@ function initialState() {
           circuitOpen: 0,
           upstreamCalls: 0,
           cacheHits: 0,
+          upstream429: 0,
+          upstream4xx: 0,
+          upstream5xx: 0,
         },
         stock: {
           requests: 0,
@@ -39,6 +42,9 @@ function initialState() {
           circuitOpen: 0,
           upstreamCalls: 0,
           cacheHits: 0,
+          upstream429: 0,
+          upstream4xx: 0,
+          upstream5xx: 0,
         },
       },
       minuteBuckets: {},
@@ -141,6 +147,9 @@ function normalizeRouteStats(raw) {
     circuitOpen: typeof raw.circuitOpen === "number" ? raw.circuitOpen : 0,
     upstreamCalls: typeof raw.upstreamCalls === "number" ? raw.upstreamCalls : 0,
     cacheHits: typeof raw.cacheHits === "number" ? raw.cacheHits : 0,
+    upstream429: typeof raw.upstream429 === "number" ? raw.upstream429 : 0,
+    upstream4xx: typeof raw.upstream4xx === "number" ? raw.upstream4xx : 0,
+    upstream5xx: typeof raw.upstream5xx === "number" ? raw.upstream5xx : 0,
   };
 }
 

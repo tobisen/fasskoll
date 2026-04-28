@@ -18,6 +18,9 @@ type RouteStats = {
   circuitOpen: number;
   upstreamCalls: number;
   cacheHits: number;
+  upstream429: number;
+  upstream4xx: number;
+  upstream5xx: number;
 };
 
 type TrafficSummary = {
@@ -74,6 +77,9 @@ const traffic = ref<TrafficSummary>({
       circuitOpen: 0,
       upstreamCalls: 0,
       cacheHits: 0,
+      upstream429: 0,
+      upstream4xx: 0,
+      upstream5xx: 0,
     },
     stock: {
       requests: 0,
@@ -84,6 +90,9 @@ const traffic = ref<TrafficSummary>({
       circuitOpen: 0,
       upstreamCalls: 0,
       cacheHits: 0,
+      upstream429: 0,
+      upstream4xx: 0,
+      upstream5xx: 0,
     },
   },
   recentErrors: [],
@@ -180,6 +189,9 @@ async function loadSummary() {
           circuitOpen: safeNumber(byRoute?.content?.circuitOpen),
           upstreamCalls: safeNumber(byRoute?.content?.upstreamCalls),
           cacheHits: safeNumber(byRoute?.content?.cacheHits),
+          upstream429: safeNumber(byRoute?.content?.upstream429),
+          upstream4xx: safeNumber(byRoute?.content?.upstream4xx),
+          upstream5xx: safeNumber(byRoute?.content?.upstream5xx),
         },
         stock: {
           requests: safeNumber(byRoute?.stock?.requests),
@@ -190,6 +202,9 @@ async function loadSummary() {
           circuitOpen: safeNumber(byRoute?.stock?.circuitOpen),
           upstreamCalls: safeNumber(byRoute?.stock?.upstreamCalls),
           cacheHits: safeNumber(byRoute?.stock?.cacheHits),
+          upstream429: safeNumber(byRoute?.stock?.upstream429),
+          upstream4xx: safeNumber(byRoute?.stock?.upstream4xx),
+          upstream5xx: safeNumber(byRoute?.stock?.upstream5xx),
         },
       },
       recentErrors: Array.isArray(incomingTraffic?.recentErrors)
@@ -328,6 +343,9 @@ watch(
               <th>Circuit open</th>
               <th>Mot Fass</th>
               <th>Från cache</th>
+              <th>Upstream 429</th>
+              <th>Upstream 4xx</th>
+              <th>Upstream 5xx</th>
             </tr>
           </thead>
           <tbody>
@@ -341,6 +359,9 @@ watch(
               <td>{{ row.circuitOpen }}</td>
               <td>{{ row.upstreamCalls }}</td>
               <td>{{ row.cacheHits }}</td>
+              <td>{{ row.upstream429 }}</td>
+              <td>{{ row.upstream4xx }}</td>
+              <td>{{ row.upstream5xx }}</td>
             </tr>
           </tbody>
         </table>

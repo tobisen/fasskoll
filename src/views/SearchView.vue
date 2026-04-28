@@ -753,10 +753,10 @@ watch(selectedRadiusKm, () => {
     <p v-else-if="!loading && rows.length > 0" class="info">
       Inga apotek matchar valt filter.
     </p>
-    <p v-if="!loading && hasResultsInOtherFilters()" class="info">
+    <p v-if="!loading && filteredResults().length === 0 && hasResultsInOtherFilters()" class="info">
       Tips: välj <strong>Kontakta apotek</strong> eller <strong>Alla statusar</strong>.
     </p>
-    <p v-else-if="!loading && hasSearched" class="info">
+    <p v-else-if="!loading && hasSearched && rows.length === 0" class="info">
       Inga träffar för vald sökning (eller tillfälligt tomt svar från Fass).
     </p>
     <p v-else-if="!loading" class="info">Ange postnummer och klicka på Sök lagerstatus.</p>
