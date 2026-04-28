@@ -157,6 +157,35 @@ function mergeNumberRecords(a = {}, b = {}) {
   return out;
 }
 
+function deriveVisitorBucketsFromLegacyVisitors(visitors = {}) {
+  const dayBuckets = {};
+  const hourBuckets = {};
+  for (const value of Object.values(visitors || {})) {
+    if (!value || typeof value !== "object") continue;
+    const day = typeof value.lastSeenDayKey === "string" ? value.lastSeenDayKey : "";
+    const hour = typeof value.lastSeenHourKey === "string" ? value.lastSeenHourKey : "";
+    if (day) dayBuckets[day] = (dayBuckets[day] || 0) + 1;
+    if (hour) hourBuckets[hour] = (hourBuckets[hour] || 0) + 1;
+  }
+  return { dayBuckets, hourBuckets };
+}
+
+function deriveErrorBucketsFromRecentErrors(recentErrors = []) {
+  const dayBuckets = {};
+  const minuteBuckets = {};
+  for (const item of recentErrors || []) {
+    if (!item || typeof item !== "object") continue;
+    const ts = Date.parse(item.timestamp || "");
+    if (!Number.isFinite(ts)) continue;
+    const date = new Date(ts);
+    const dKey = date.toISOString().slice(0, 10);
+    const mKey = date.toISOString().slice(0, 16);
+    dayBuckets[dKey] = (dayBuckets[dKey] || 0) + 1;
+    minuteBuckets[mKey] = (minuteBuckets[mKey] || 0) + 1;
+  }
+  return { dayBuckets, minuteBuckets };
+}
+
 async function backfillAtomicFromLegacy(state) {
   const alreadyDone = await kvGet("migration:legacyBackfillDone");
   if (alreadyDone === "1") return;
@@ -373,6 +402,42 @@ export default async function handler(req, res) {
         return (Number.isFinite(bTs) ? bTs : 0) - (Number.isFinite(aTs) ? aTs : 0);
       })
       .slice(0, 20);
+
+    const legacyHasVisitorDayBuckets = !isEmptyRecord(legacyTraffic.visitorDayBuckets || {});
+    const legacyHasVisitorHourBuckets = !isEmptyRecord(legacyTraffic.visitorHourBuckets || {});
+    if (!legacyHasVisitorDayBuckets || !legacyHasVisitorHourBuckets) {
+      const derivedVisitor = deriveVisitorBucketsFromLegacyVisitors(legacyState.visitors || {});
+      if (!legacyHasVisitorDayBuckets) {
+        Object.assign(
+          mergedVisitorDayBuckets,
+          mergeNumberRecords(derivedVisitor.dayBuckets, mergedVisitorDayBuckets),
+        );
+      }
+      if (!legacyHasVisitorHourBuckets) {
+        Object.assign(
+          mergedVisitorHourBuckets,
+          mergeNumberRecords(derivedVisitor.hourBuckets, mergedVisitorHourBuckets),
+        );
+      }
+    }
+
+    const legacyHasErrorDayBuckets = !isEmptyRecord(legacyTraffic.errorDayBuckets || {});
+    const legacyHasErrorMinuteBuckets = !isEmptyRecord(legacyTraffic.errorMinuteBuckets || {});
+    if (!legacyHasErrorDayBuckets || !legacyHasErrorMinuteBuckets) {
+      const derivedErrors = deriveErrorBucketsFromRecentErrors(legacyTraffic.recentErrors || []);
+      if (!legacyHasErrorDayBuckets) {
+        Object.assign(
+          mergedErrorDayBuckets,
+          mergeNumberRecords(derivedErrors.dayBuckets, mergedErrorDayBuckets),
+        );
+      }
+      if (!legacyHasErrorMinuteBuckets) {
+        Object.assign(
+          mergedErrorMinuteBuckets,
+          mergeNumberRecords(derivedErrors.minuteBuckets, mergedErrorMinuteBuckets),
+        );
+      }
+    }
 
     uniqueVisitors = Math.max(
       uniqueVisitors,
