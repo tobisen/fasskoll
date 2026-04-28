@@ -91,6 +91,22 @@ function normalizeZipCode(value) {
   return cleaned;
 }
 
+function zipInputDiagnostics(rawValue) {
+  if (typeof rawValue !== "string") {
+    return { kind: "non_string", length: 0, sample: "-" };
+  }
+  const trimmed = rawValue.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  const sample =
+    digits.length >= 2 ? `${digits.slice(0, 2)}***` : digits.length === 1 ? `${digits}***` : "-";
+  return {
+    kind: "string",
+    length: trimmed.length,
+    digitsLength: digits.length,
+    sample,
+  };
+}
+
 function normalizePackageId(value) {
   if (typeof value !== "string") return null;
   const cleaned = value.trim();
@@ -229,7 +245,7 @@ async function getZipContext(zipCode) {
     .map((p) => p?.glnCode)
     .filter((x) => typeof x === "string" && x.length > 0);
 
-  const data = { list, glnCodes };
+  const data = { list, glnCodes, latitude, longitude };
   await setFreshCacheEntry(
     zipContextCache,
     "zipContext",
@@ -383,14 +399,16 @@ export default async function handler(req, res) {
     return;
   }
 
-  const normalizedZip = normalizeZipCode(req.body?.zipCode);
+  const rawZipCode = req.body?.zipCode;
+  const normalizedZip = normalizeZipCode(rawZipCode);
   if (!normalizedZip) {
     res.status(400).json({ error: "Ogiltigt postnummer. Ange exakt 5 siffror." });
+    const zipDiag = zipInputDiagnostics(rawZipCode);
     await recordTrafficEvent({
       route: "stock",
       status: 400,
       category: "validation",
-      message: "Invalid zipCode format",
+      message: `Invalid zipCode format (kind=${zipDiag.kind}, len=${zipDiag.length}, digits=${zipDiag.digitsLength ?? 0}, sample=${zipDiag.sample})`,
       success: false,
     });
     return;
@@ -431,6 +449,7 @@ export default async function handler(req, res) {
           staleFallback: true,
           degraded: true,
           cacheTtlMs: STOCK_CACHE_TTL_MS,
+          searchCenter: null,
         });
         await recordTrafficEvent({
           route: "stock",
@@ -440,6 +459,24 @@ export default async function handler(req, res) {
           success: true,
           upstreamCalls: requestUpstreamCalls,
           cacheHits: requestCacheHits + fallback.cacheHits,
+        });
+        return;
+      }
+
+      const zipErrorMessage =
+        zipError instanceof Error ? zipError.message : "Okänt geocode-fel";
+      if (zipErrorMessage.includes("Kunde inte tolka koordinater")) {
+        res.status(400).json({
+          error:
+            "Kunde inte hitta koordinater för postnumret just nu. Kontrollera postnumret eller försök igen om en stund.",
+          degraded: false,
+        });
+        await recordTrafficEvent({
+          route: "stock",
+          status: 400,
+          category: "geocode_no_match",
+          message: zipErrorMessage,
+          success: false,
         });
         return;
       }
@@ -487,6 +524,10 @@ export default async function handler(req, res) {
       staleFallback: false,
       degraded: false,
       cacheTtlMs: STOCK_CACHE_TTL_MS,
+      searchCenter: {
+        latitude: zipContext.latitude,
+        longitude: zipContext.longitude,
+      },
     });
     await recordTrafficEvent({
       route: "stock",

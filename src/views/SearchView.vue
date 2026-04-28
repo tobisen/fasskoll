@@ -2,10 +2,8 @@
 import { ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import {
-  geocodeZip,
   getInterchangeablePackages,
   getPackage,
-  getPharmaciesWithStock,
   searchDrug,
   type FormStrengthOption,
   type Pharmacy,
@@ -569,16 +567,6 @@ async function checkStock() {
   lastStockRequestKey.value = stockRequestKey;
 
   try {
-    try {
-      const geocode = await geocodeZip(zipCode.value.trim());
-      searchCenter.value = {
-        latitude: geocode.latitude,
-        longitude: geocode.longitude,
-      };
-    } catch {
-      searchCenter.value = null;
-    }
-
     const variants = optionsToCheck.map((option) => ({
       packageId: option.packageId,
       strengthLabel: optionDisplayLabel(option),
@@ -606,6 +594,17 @@ async function checkStock() {
     }
 
     const payload = await response.json();
+    const payloadSearchCenter =
+      payload?.searchCenter &&
+      typeof payload.searchCenter === "object" &&
+      typeof payload.searchCenter.latitude === "number" &&
+      typeof payload.searchCenter.longitude === "number"
+        ? {
+            latitude: payload.searchCenter.latitude,
+            longitude: payload.searchCenter.longitude,
+          }
+        : null;
+    searchCenter.value = payloadSearchCenter;
     const incomingRows = Array.isArray(payload?.rows) ? payload.rows : [];
     allRows.value = incomingRows;
     rows.value = applyRadiusFilter(allRows.value);
@@ -618,54 +617,13 @@ async function checkStock() {
         "Fass svarar inte fullt ut just nu. Visar senast tillgängliga cachedata.";
     }
   } catch (primaryError) {
-    const builtRows: Array<{
-      key: string;
-      pharmacy: Pharmacy;
-      strengthLabel: string;
-      packageType: string;
-      stockInformation: string;
-      inStock: boolean;
-    }> = [];
-
-    const failedStrengths: string[] = [];
-
-    for (const option of optionsToCheck) {
-      try {
-        const packageRows = await getPharmaciesWithStock({
-          packageId: option.packageId,
-          zipCode: zipCode.value.trim(),
-          limit: 60,
-        });
-
-        for (const item of packageRows) {
-          builtRows.push({
-            key: `${item.pharmacy.glnCode}-${option.id}`,
-            pharmacy: item.pharmacy,
-            strengthLabel: optionDisplayLabel(option),
-            packageType: option.packageType ?? packageTypeFromStrengthLabel(optionDisplayLabel(option)),
-            stockInformation: item.stock?.stockInformation ?? "UNKNOWN",
-            inStock: item.inStock,
-          });
-        }
-      } catch {
-        failedStrengths.push(optionDisplayLabel(option));
-      }
-    }
-
-    allRows.value = builtRows;
-    rows.value = applyRadiusFilter(allRows.value);
-    unavailableStrengths.value = failedStrengths;
-
-    if (builtRows.length > 0) {
-      if (props.isLoggedIn) {
-        infoMessage.value =
-          "Fass svarade inte fullt ut. Visar fallbackdata från reservflödet.";
-      }
-    } else {
-      const details =
-        primaryError instanceof Error ? primaryError.message : "Okänt fel från Fass";
-      setUiError(`Kunde inte hämta lagerstatus just nu: ${details}`);
-    }
+    searchCenter.value = null;
+    allRows.value = [];
+    rows.value = [];
+    unavailableStrengths.value = [];
+    const details =
+      primaryError instanceof Error ? primaryError.message : "Okänt fel från Fass";
+    setUiError(`Kunde inte hämta lagerstatus just nu: ${details}`);
   }
 
   finally {

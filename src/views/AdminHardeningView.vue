@@ -88,6 +88,11 @@ const hardeningItems: Item[] = [
     details: "Inga loopande bakgrundsanrop. Endast klick/explicit navigering triggar.",
   },
   {
+    title: "Skydd mot knapphamrande i klienten",
+    status: "implemented",
+    details: "Cooldown blockerar identiska sökningar under kort tidsfönster för att minska onödiga anrop.",
+  },
+  {
     title: "Timeout + begränsade retries + tydlig felhantering",
     status: "implemented",
     details: "Timeout, retry/backoff/jitter och uppströmsfel är centraliserat hanterat.",
@@ -131,6 +136,11 @@ const hardeningItems: Item[] = [
     title: "Visa fallback när Fass inte svarar",
     status: "implemented",
     details: "UI visar tydlig fallback/degraded-status och stale cache vid behov.",
+  },
+  {
+    title: "Ta bort direkt stock-fallback via /api/content",
+    status: "implemented",
+    details: "Stock går konsekvent via /api/stock för mindre loggbrus och färre upstream 400-fel.",
   },
   {
     title: "Isolera Fass-typer/mapping för enkel ändring",

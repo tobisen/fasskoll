@@ -118,6 +118,7 @@ Tjänsten är uttryckligen markerad som **ej officiell**.
 - Separat zip-kontextcache med TTL
 - `GET /api/content` har svarscache med TTL (`FASS_CONTENT_CACHE_TTL_MS`) och cache-hit sker före upstream/rate-limit
 - KV-baserad delad cache används när KV-env finns (stabilare i serverless-produktion)
+- Frontendens direkta reservanrop för stock är borttaget; stock går konsekvent via `/api/stock`
 - Minskar upprepade anrop mot Fass
 
 ### 6.3 Timeout + retries + backoff + jitter
@@ -141,6 +142,7 @@ I service-lagret:
 ### 6.6 Tydliga fallbackflöden
 - Om vissa varianter misslyckas: partiellt svar med markerade saknade styrkor
 - Om upstream ligger nere: stale cache och tydlig degraded-indikator
+- Geocode-fel utan koordinatmatchning hanteras explicit som 400 med tydligare felmeddelande
 
 ## 7. Observability, spårbarhet och datahantering
 
@@ -173,8 +175,8 @@ I service-lagret:
 3. **Serverless runtime-storage**  
    `/tmp` i serverless är inte en långsiktig databas. Metrics är därför driftindikatorer, inte revisionssäkra loggar.
 
-4. **Rate limiting per IP (ej full per användare ännu)**  
-   Per-IP är aktivt för gäster; per-session/per-user kvotering kan förstärkas ytterligare.
+4. **Rate-limit tuning över tid**  
+   Grunden är implementerad (gäst-identitet + sessionbaserat för inloggade), men nivåerna behöver fortsatt finjusteras utifrån verklig trafik.
 
 5. **Ingen officiell API-garanti**  
    Integration bygger på observerat frontendflöde, inte officiellt kontrakt.
@@ -247,6 +249,7 @@ Implementerat:
 - Cache med TTL per packageId+zip
 - Cache av `GET /api/content` före upstream-anrop
 - Endast användartriggade anrop (ingen polling)
+- Klient-cooldown för identiska sökningar (skydd mot knapphamrande)
 - Timeout/retries/felhantering
 - Max total requesttid över retry-kedja
 - Kill switch
