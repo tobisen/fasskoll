@@ -125,6 +125,34 @@ function buildDayByHour(source: Record<string, number>) {
   return { labels, values };
 }
 
+function distributeByWeights(total: number, weights: number[]): number[] {
+  if (!Number.isFinite(total) || total <= 0 || weights.length === 0) {
+    return Array.from({ length: weights.length }, () => 0);
+  }
+  const weightSum = weights.reduce((sum, w) => sum + Math.max(0, w), 0);
+  if (weightSum <= 0) {
+    const base = Math.floor(total / weights.length);
+    const rem = total - base * weights.length;
+    return weights.map((_, i) => base + (i < rem ? 1 : 0));
+  }
+
+  const raw = weights.map((w) => (Math.max(0, w) / weightSum) * total);
+  const ints = raw.map((v) => Math.floor(v));
+  let remainder = total - ints.reduce((sum, v) => sum + v, 0);
+
+  if (remainder > 0) {
+    const order = raw
+      .map((v, i) => ({ i, frac: v - Math.floor(v) }))
+      .sort((a, b) => b.frac - a.frac);
+    for (let idx = 0; idx < order.length && remainder > 0; idx += 1) {
+      ints[order[idx].i] += 1;
+      remainder -= 1;
+    }
+  }
+
+  return ints;
+}
+
 function buildWeekByDay(source: Record<string, number>) {
   const now = new Date();
   const start = new Date(now);
@@ -178,7 +206,24 @@ const reqWeek = computed(() => buildWeekByDay(buckets.value.day));
 const reqMonth = computed(() => buildMonthByWeek(buckets.value.day));
 const reqYear = computed(() => buildYearByMonth(buckets.value.day));
 
-const visitorsDay = computed(() => buildDayByHour(buckets.value.visitorHours));
+const visitorsDay = computed(() => {
+  const base = buildDayByHour(buckets.value.visitorHours);
+  const today = ymd(new Date());
+  const todayVisitorsTotal = safeNumber((buckets.value.visitorDays as Record<string, unknown>)[today]);
+  const knownVisitors = base.values.reduce((sum, value) => sum + safeNumber(value), 0);
+
+  if (todayVisitorsTotal <= knownVisitors) {
+    return base;
+  }
+
+  const missing = todayVisitorsTotal - knownVisitors;
+  const weights = reqDay.value.values.map((v) => safeNumber(v));
+  const distributed = distributeByWeights(missing, weights);
+  return {
+    labels: base.labels,
+    values: base.values.map((v, i) => safeNumber(v) + safeNumber(distributed[i])),
+  };
+});
 const visitorsWeek = computed(() => buildWeekByDay(buckets.value.visitorDays));
 const visitorsMonth = computed(() => buildMonthByWeek(buckets.value.visitorDays));
 const visitorsYear = computed(() => buildYearByMonth(buckets.value.visitorDays));
