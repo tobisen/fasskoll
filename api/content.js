@@ -36,6 +36,15 @@ const KV_TOKEN =
   process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || "";
 const localContentCache = new Map();
 
+function endpointPathForLogs(endpoint) {
+  try {
+    const parsed = new URL(endpoint);
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return "invalid-endpoint";
+  }
+}
+
 function hasKvConfig() {
   return typeof KV_URL === "string" && KV_URL.length > 0 && typeof KV_TOKEN === "string" && KV_TOKEN.length > 0;
 }
@@ -113,58 +122,6 @@ export default async function handler(req, res) {
     return;
   }
 
-  const session = parseSession(req);
-  const ip = getClientIp(req);
-  const userAgent =
-    typeof req.headers?.["user-agent"] === "string"
-      ? req.headers["user-agent"].slice(0, 120)
-      : "unknown";
-
-  if (!session) {
-    const guestId = getOrSetGuestId(req, res);
-    const limited = enforceRateLimit(req, res, {
-      scope: "guest-content",
-      key: `${guestId}|${ip}|${userAgent}`,
-      maxRequests: GUEST_CONTENT_RATE_LIMIT_PER_MIN,
-      windowMs: 60_000,
-      blockMs: GUEST_CONTENT_BLOCK_MINUTES * 60_000,
-    });
-    if (!limited.allowed) {
-      res.status(429).json({
-        error: "För många anrop från oinloggad användare. Försök igen om en stund.",
-      });
-      await recordTrafficEvent({
-        route: "content",
-        status: 429,
-        category: "rate_limited",
-        message: "Guest rate limit triggered",
-        success: false,
-      });
-      return;
-    }
-  } else {
-    const limited = enforceRateLimit(req, res, {
-      scope: "auth-content",
-      key: `${session.username}|${session.sessionNonce}`,
-      maxRequests: AUTH_CONTENT_RATE_LIMIT_PER_MIN,
-      windowMs: 60_000,
-      blockMs: AUTH_CONTENT_BLOCK_MINUTES * 60_000,
-    });
-    if (!limited.allowed) {
-      res.status(429).json({
-        error: "För många anrop för inloggad användare. Försök igen om en stund.",
-      });
-      await recordTrafficEvent({
-        route: "content",
-        status: 429,
-        category: "rate_limited",
-        message: "Authenticated content rate limit triggered",
-        success: false,
-      });
-      return;
-    }
-  }
-
   const endpoint = req.query?.endpoint;
 
   if (!endpoint || typeof endpoint !== "string") {
@@ -213,6 +170,58 @@ export default async function handler(req, res) {
       }
     }
 
+    const session = parseSession(req);
+    const ip = getClientIp(req);
+    const userAgent =
+      typeof req.headers?.["user-agent"] === "string"
+        ? req.headers["user-agent"].slice(0, 120)
+        : "unknown";
+
+    if (!session) {
+      const guestId = getOrSetGuestId(req, res);
+      const limited = enforceRateLimit(req, res, {
+        scope: "guest-content",
+        key: `${guestId}|${ip}|${userAgent}`,
+        maxRequests: GUEST_CONTENT_RATE_LIMIT_PER_MIN,
+        windowMs: 60_000,
+        blockMs: GUEST_CONTENT_BLOCK_MINUTES * 60_000,
+      });
+      if (!limited.allowed) {
+        res.status(429).json({
+          error: "För många anrop från oinloggad användare. Försök igen om en stund.",
+        });
+        await recordTrafficEvent({
+          route: "content",
+          status: 429,
+          category: "rate_limited",
+          message: "Guest rate limit triggered",
+          success: false,
+        });
+        return;
+      }
+    } else {
+      const limited = enforceRateLimit(req, res, {
+        scope: "auth-content",
+        key: `${session.username}|${session.sessionNonce}`,
+        maxRequests: AUTH_CONTENT_RATE_LIMIT_PER_MIN,
+        windowMs: 60_000,
+        blockMs: AUTH_CONTENT_BLOCK_MINUTES * 60_000,
+      });
+      if (!limited.allowed) {
+        res.status(429).json({
+          error: "För många anrop för inloggad användare. Försök igen om en stund.",
+        });
+        await recordTrafficEvent({
+          route: "content",
+          status: 429,
+          category: "rate_limited",
+          message: "Authenticated content rate limit triggered",
+          success: false,
+        });
+        return;
+      }
+    }
+
     const upstream = await forwardFassRequest({
       endpoint,
       method: req.method,
@@ -236,7 +245,10 @@ export default async function handler(req, res) {
       route: "content",
       status: upstream.status,
       category: upstream.status >= 400 ? "upstream_error" : "request",
-      message: upstream.status >= 400 ? "Upstream returned error status" : "OK",
+      message:
+        upstream.status >= 400
+          ? `Upstream returned error status [${endpointPathForLogs(endpoint)}]`
+          : "OK",
       success: upstream.status < 400,
       upstreamCalls: 1,
       cacheHits: 0,

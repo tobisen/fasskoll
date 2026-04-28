@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import {
   geocodeZip,
@@ -57,6 +57,7 @@ const selectedRadiusKm = ref(10);
 const searchCenter = ref<{ latitude: number; longitude: number } | null>(null);
 const PUBLIC_MEDICINES = new Set(["estradot", "lenzetto", "divigel", "estrogel"]);
 const infoMessage = ref("");
+const lastAutostartKey = ref("");
 
 const STOCK_GROUP_LABELS: Record<string, string> = {
   IN_STOCK: "I lager",
@@ -78,6 +79,25 @@ function stockGroup(code: string): "IN_STOCK" | "OUT_OF_STOCK" | "CONTACT_PHARMA
 
 function stockLabel(code: string): string {
   return STOCK_GROUP_LABELS[stockGroup(code)];
+}
+
+function isRateLimitErrorMessage(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("för många anrop") ||
+    lower.includes("för många lagerförfrågningar") ||
+    lower.includes("rate limit") ||
+    lower.includes("429")
+  );
+}
+
+function setUiError(message: string) {
+  if (props.isLoggedIn) {
+    error.value = message;
+    return;
+  }
+
+  error.value = isRateLimitErrorMessage(message) ? message : "";
 }
 
 function optionDisplayLabel(option: FormStrengthOption): string {
@@ -383,7 +403,7 @@ async function loadFormStrengthOptions(sourcePackageIds: string[]) {
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Okänt fel";
-    error.value = `Kunde inte hämta läkemedelsformer/styrkor: ${message}`;
+    setUiError(`Kunde inte hämta läkemedelsformer/styrkor: ${message}`);
   } finally {
     loadingOptions.value = false;
   }
@@ -394,13 +414,14 @@ async function handleMedicineSearch() {
   const guestAllowedMedicine = PUBLIC_MEDICINES.has(normalizedQuery);
 
   if (!props.isLoggedIn && !guestAllowedMedicine) {
-    error.value =
-      "Logga in för att söka valfria läkemedel. Estradot, Lenzetto, Divigel och Estrogel är tillgängliga utan inloggning.";
+    setUiError(
+      "Logga in för att söka valfria läkemedel. Estradot, Lenzetto, Divigel och Estrogel är tillgängliga utan inloggning.",
+    );
     return;
   }
 
   if (!medicineQuery.value.trim()) {
-    error.value = "Skriv ett läkemedelsnamn.";
+    setUiError("Skriv ett läkemedelsnamn.");
     return;
   }
 
@@ -433,7 +454,7 @@ async function handleMedicineSearch() {
     const candidates = Array.from(unique.values()).slice(0, 20);
 
     if (candidates.length === 0) {
-      error.value = "Inga läkemedel hittades för sökningen.";
+      setUiError("Inga läkemedel hittades för sökningen.");
       return;
     }
 
@@ -446,7 +467,7 @@ async function handleMedicineSearch() {
     await selectMedicine(first, relatedSourceIds);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Okänt fel";
-    error.value = `Kunde inte söka läkemedel: ${message}`;
+    setUiError(`Kunde inte söka läkemedel: ${message}`);
   } finally {
     loadingMedicineSearch.value = false;
   }
@@ -470,15 +491,18 @@ async function selectMedicine(
 }
 
 async function checkStock() {
+  if (loading.value) {
+    return;
+  }
   hasSearched.value = true;
 
   if (!formStrengthOptions.value.length && !packageId.value.trim()) {
-    error.value = "Sök och välj ett läkemedel först.";
+    setUiError("Sök och välj ett läkemedel först.");
     return;
   }
 
   if (!zipCode.value.trim()) {
-    error.value = "Ange postnummer.";
+    setUiError("Ange postnummer.");
     return;
   }
 
@@ -591,7 +615,7 @@ async function checkStock() {
     } else {
       const details =
         primaryError instanceof Error ? primaryError.message : "Okänt fel från Fass";
-      error.value = `Kunde inte hämta lagerstatus just nu: ${details}`;
+      setUiError(`Kunde inte hämta lagerstatus just nu: ${details}`);
     }
   }
 
@@ -613,6 +637,11 @@ async function applyPrefillFromRouteQuery() {
     if (props.isLoggedIn || isPublicMedicine) {
       medicineQuery.value = requestedMedicine;
       if (queryAutostart === "1") {
+        const autostartKey = `${requestedMedicine}|${typeof queryZipCode === "string" ? queryZipCode : ""}|${typeof queryPackageId === "string" ? queryPackageId : ""}`;
+        if (lastAutostartKey.value === autostartKey) {
+          return;
+        }
+        lastAutostartKey.value = autostartKey;
         await handleMedicineSearch();
         return;
       }
@@ -635,15 +664,12 @@ async function applyPrefillFromRouteQuery() {
   unavailableStrengths.value = [];
 }
 
-onMounted(async () => {
-  await applyPrefillFromRouteQuery();
-});
-
 watch(
   () => route.query,
   async () => {
     await applyPrefillFromRouteQuery();
   },
+  { immediate: true },
 );
 
 watch(selectedRadiusKm, () => {

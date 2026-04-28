@@ -139,22 +139,50 @@ function isAbortError(error) {
 }
 
 function asFriendlyUpstreamError(status, text) {
+  const detail = extractUpstreamDetail(text);
   if (status === 429) {
-    return "Fass begränsar anrop just nu (429). Försök igen om en stund.";
+    return `Fass begränsar anrop just nu (429). Försök igen om en stund.${detail ? ` Detalj: ${detail}` : ""}`;
   }
   if (status === 408) {
-    return "Fass svarade för långsamt (timeout). Försök igen.";
+    return `Fass svarade för långsamt (timeout). Försök igen.${detail ? ` Detalj: ${detail}` : ""}`;
   }
   if (status >= 500) {
-    return `Fass är tillfälligt otillgängligt (${status}). Försök igen om en stund.`;
+    return `Fass är tillfälligt otillgängligt (${status}). Försök igen om en stund.${detail ? ` Detalj: ${detail}` : ""}`;
   }
   if (status >= 400) {
-    return `Fass svarade med felkod ${status}.`;
+    return `Fass svarade med felkod ${status}.${detail ? ` Detalj: ${detail}` : ""}`;
   }
   if (isHtmlResponse(text)) {
     return "Fass returnerade HTML/felsida istället för JSON.";
   }
   return "Okänt felsvar från Fass.";
+}
+
+function extractUpstreamDetail(text) {
+  if (typeof text !== "string") return "";
+  const trimmed = text.trim();
+  if (!trimmed || isHtmlResponse(trimmed)) return "";
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (typeof parsed === "string") {
+      return parsed.slice(0, 200);
+    }
+    if (parsed && typeof parsed === "object") {
+      const candidate =
+        parsed.message ||
+        parsed.error ||
+        parsed.detail ||
+        parsed.title;
+      if (typeof candidate === "string" && candidate.trim()) {
+        return candidate.trim().slice(0, 200);
+      }
+    }
+  } catch {
+    // not JSON, continue below
+  }
+
+  return trimmed.replace(/\s+/g, " ").slice(0, 200);
 }
 
 function toNumber(value) {
