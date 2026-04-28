@@ -30,6 +30,9 @@ const isAdmin = computed(() => props.isLoggedIn && props.currentUsername === "ad
 const loading = ref(false);
 const error = ref("");
 const selectedPeriod = ref<PeriodKey>("day");
+const totalUniqueVisitors = ref(0);
+const totalPageViews = ref(0);
+const totalErrors = ref(0);
 const periodStats = ref<Record<PeriodKey, PeriodMetric>>({
   day: { requests: 0, pageViews: 0, errors: 0, uniqueVisitors: 0, peakRpm: 0, avgPerDay: 0, days: 1 },
   week: { requests: 0, pageViews: 0, errors: 0, uniqueVisitors: 0, peakRpm: 0, avgPerDay: 0, days: 7 },
@@ -154,6 +157,11 @@ async function loadSummary() {
     const response = await fetch("/api/metrics/summary", { method: "GET", credentials: "include", cache: "no-store" });
     if (!response.ok) throw new Error(response.status === 403 ? "Saknar behörighet." : "Kunde inte läsa statistik.");
     const payload = await response.json();
+    totalUniqueVisitors.value = safeNumber(payload?.uniqueVisitors);
+    totalPageViews.value = safeNumber(payload?.pageViews);
+    totalErrors.value =
+      safeNumber(payload?.traffic?.byRoute?.content?.failed) +
+      safeNumber(payload?.traffic?.byRoute?.stock?.failed);
     const incomingPeriodStats = payload?.periodStats ?? {};
     periodStats.value = {
       day: { requests: safeNumber(incomingPeriodStats?.day?.requests), pageViews: safeNumber(incomingPeriodStats?.day?.pageViews), errors: safeNumber(incomingPeriodStats?.day?.errors), uniqueVisitors: safeNumber(incomingPeriodStats?.day?.uniqueVisitors), peakRpm: safeNumber(incomingPeriodStats?.day?.peakRpm), avgPerDay: safeNumber(incomingPeriodStats?.day?.avgPerDay), days: safeNumber(incomingPeriodStats?.day?.days) || 1 },
@@ -214,10 +222,11 @@ watch(() => [props.isLoggedIn, props.currentUsername], async () => {
       </div>
 
       <div class="stats-grid">
-        <article class="stat-card"><h2>Besökare</h2><p class="stat-value">{{ selectedPeriodStats.uniqueVisitors }}</p></article>
-        <article class="stat-card"><h2>Sidvisningar</h2><p class="stat-value">{{ selectedPeriodStats.pageViews }}</p></article>
-        <article class="stat-card"><h2>Fel</h2><p class="stat-value">{{ selectedPeriodStats.errors }}</p></article>
+        <article class="stat-card"><h2>Besökare</h2><p class="stat-value">{{ totalUniqueVisitors }}</p><p class="small">Totalt</p></article>
+        <article class="stat-card"><h2>Sidvisningar</h2><p class="stat-value">{{ totalPageViews }}</p><p class="small">Totalt</p></article>
+        <article class="stat-card"><h2>Fel</h2><p class="stat-value">{{ totalErrors }}</p><p class="small">Totalt</p></article>
       </div>
+      <p class="small period-note">Vald period ({{ selectedPeriod === "day" ? "dag" : selectedPeriod === "week" ? "vecka" : selectedPeriod === "month" ? "månad" : "år" }}): Besökare {{ selectedPeriodStats.uniqueVisitors }}, Sidvisningar {{ selectedPeriodStats.pageViews }}, Fel {{ selectedPeriodStats.errors }}.</p>
 
       <h2 class="section-title">Diagram (anrop)</h2>
       <div class="charts-grid">
@@ -269,10 +278,12 @@ h1 { margin: 0.15rem 0 0.35rem; }
 .chart-card { border: 1px solid var(--line); border-radius: 12px; padding: 0.8rem; background: var(--surface-strong); }
 .chart-card h3 { margin: 0 0 0.6rem; font-size: 0.95rem; }
 .bars { height: 170px; border: 1px solid var(--line); border-radius: 10px; padding: 0.5rem; display: flex; align-items: flex-end; gap: 0.28rem; overflow-x: auto; background: #fff; }
-.bar-col { min-width: 24px; flex: 1 0 24px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 0.3rem; }
+.bar-col { min-width: 24px; height: 100%; flex: 1 0 24px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 0.3rem; }
 .bar { width: 100%; min-height: 0; border-radius: 6px 6px 0 0; background: linear-gradient(180deg, var(--primary) 0%, var(--primary-strong) 100%); }
 .bar-label { font-size: 0.66rem; color: var(--muted); white-space: nowrap; }
 .toolbar { margin-top: 0.8rem; }
+.small { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.8rem; }
+.period-note { margin: 0.5rem 0 1rem; }
 button { border: none; border-radius: 10px; padding: 0.65rem 1rem; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-strong) 100%); color: #fff; font-weight: 600; cursor: pointer; }
 .error { margin-top: 0.8rem; color: var(--danger); }
 @media (max-width: 860px) { .stats-grid { grid-template-columns: 1fr 1fr; } .charts-grid { grid-template-columns: 1fr; } }
