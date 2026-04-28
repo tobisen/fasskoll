@@ -149,6 +149,14 @@ function isEmptyRecord(input) {
   return !input || typeof input !== "object" || Object.keys(input).length === 0;
 }
 
+function mergeNumberRecords(a = {}, b = {}) {
+  const out = { ...a };
+  for (const [key, value] of Object.entries(b || {})) {
+    out[key] = safeNumber(out[key]) + safeNumber(value);
+  }
+  return out;
+}
+
 async function backfillAtomicFromLegacy(state) {
   const alreadyDone = await kvGet("migration:legacyBackfillDone");
   if (alreadyDone === "1") return;
@@ -325,6 +333,151 @@ export default async function handler(req, res) {
       {},
       visitorDayBuckets,
     );
+
+    // Always merge in legacy snapshot so historical data from pre-atomic rollout is preserved.
+    const legacyState = await readMetricsState();
+    const legacyTraffic = legacyState.traffic || {};
+    const legacyByRoute = legacyTraffic.byRoute || {};
+
+    const mergedMinuteBuckets = mergeNumberRecords(minuteBuckets, legacyTraffic.minuteBuckets || {});
+    const mergedDayBuckets = mergeNumberRecords(dayBuckets, legacyTraffic.dayBuckets || {});
+    const mergedPageViewDayBuckets = mergeNumberRecords(
+      pageViewDayBuckets,
+      legacyTraffic.pageViewDayBuckets || {},
+    );
+    const mergedVisitorHourBuckets = mergeNumberRecords(
+      visitorHourBuckets,
+      legacyTraffic.visitorHourBuckets || {},
+    );
+    const mergedVisitorDayBuckets = mergeNumberRecords(
+      visitorDayBuckets,
+      legacyTraffic.visitorDayBuckets || {},
+    );
+    const mergedErrorMinuteBuckets = mergeNumberRecords(
+      errorMinuteBuckets,
+      legacyTraffic.errorMinuteBuckets || {},
+    );
+    const mergedErrorDayBuckets = mergeNumberRecords(
+      errorDayBuckets,
+      legacyTraffic.errorDayBuckets || {},
+    );
+
+    const mergedRecentErrors = [
+      ...(Array.isArray(recentErrors) ? recentErrors : []),
+      ...(Array.isArray(legacyTraffic.recentErrors) ? legacyTraffic.recentErrors : []),
+    ]
+      .filter((item) => item && typeof item === "object")
+      .sort((a, b) => {
+        const aTs = Date.parse(a.timestamp || "");
+        const bTs = Date.parse(b.timestamp || "");
+        return (Number.isFinite(bTs) ? bTs : 0) - (Number.isFinite(aTs) ? aTs : 0);
+      })
+      .slice(0, 20);
+
+    uniqueVisitors = Math.max(
+      uniqueVisitors,
+      Object.keys(legacyState.visitors || {}).length,
+    );
+    pageViews = safeNumber(pageViews) + safeNumber(legacyState.pageViews || 0);
+    updatedAt = updatedAt || legacyState.updatedAt || null;
+
+    traffic = {
+      totalRequests:
+        safeNumber(traffic.totalRequests) + safeNumber(legacyTraffic.totalRequests || 0),
+      byRoute: {
+        content: {
+          requests:
+            safeNumber(routeContent.requests) + safeNumber(legacyByRoute.content?.requests || 0),
+          success:
+            safeNumber(routeContent.success) + safeNumber(legacyByRoute.content?.success || 0),
+          failed:
+            safeNumber(routeContent.failed) + safeNumber(legacyByRoute.content?.failed || 0),
+          rateLimited:
+            safeNumber(routeContent.rateLimited) +
+            safeNumber(legacyByRoute.content?.rateLimited || 0),
+          killSwitch:
+            safeNumber(routeContent.killSwitch) +
+            safeNumber(legacyByRoute.content?.killSwitch || 0),
+          circuitOpen:
+            safeNumber(routeContent.circuitOpen) +
+            safeNumber(legacyByRoute.content?.circuitOpen || 0),
+          upstreamCalls:
+            safeNumber(routeContent.upstreamCalls) +
+            safeNumber(legacyByRoute.content?.upstreamCalls || 0),
+          cacheHits:
+            safeNumber(routeContent.cacheHits) +
+            safeNumber(legacyByRoute.content?.cacheHits || 0),
+          upstream429:
+            safeNumber(routeContent.upstream429) +
+            safeNumber(legacyByRoute.content?.upstream429 || 0),
+          upstream4xx:
+            safeNumber(routeContent.upstream4xx) +
+            safeNumber(legacyByRoute.content?.upstream4xx || 0),
+          upstream5xx:
+            safeNumber(routeContent.upstream5xx) +
+            safeNumber(legacyByRoute.content?.upstream5xx || 0),
+        },
+        stock: {
+          requests:
+            safeNumber(routeStock.requests) + safeNumber(legacyByRoute.stock?.requests || 0),
+          success:
+            safeNumber(routeStock.success) + safeNumber(legacyByRoute.stock?.success || 0),
+          failed:
+            safeNumber(routeStock.failed) + safeNumber(legacyByRoute.stock?.failed || 0),
+          rateLimited:
+            safeNumber(routeStock.rateLimited) +
+            safeNumber(legacyByRoute.stock?.rateLimited || 0),
+          killSwitch:
+            safeNumber(routeStock.killSwitch) +
+            safeNumber(legacyByRoute.stock?.killSwitch || 0),
+          circuitOpen:
+            safeNumber(routeStock.circuitOpen) +
+            safeNumber(legacyByRoute.stock?.circuitOpen || 0),
+          upstreamCalls:
+            safeNumber(routeStock.upstreamCalls) +
+            safeNumber(legacyByRoute.stock?.upstreamCalls || 0),
+          cacheHits:
+            safeNumber(routeStock.cacheHits) +
+            safeNumber(legacyByRoute.stock?.cacheHits || 0),
+          upstream429:
+            safeNumber(routeStock.upstream429) +
+            safeNumber(legacyByRoute.stock?.upstream429 || 0),
+          upstream4xx:
+            safeNumber(routeStock.upstream4xx) +
+            safeNumber(legacyByRoute.stock?.upstream4xx || 0),
+          upstream5xx:
+            safeNumber(routeStock.upstream5xx) +
+            safeNumber(legacyByRoute.stock?.upstream5xx || 0),
+        },
+      },
+      minuteBuckets: mergedMinuteBuckets,
+      dayBuckets: mergedDayBuckets,
+      pageViewDayBuckets: mergedPageViewDayBuckets,
+      visitorHourBuckets: mergedVisitorHourBuckets,
+      visitorDayBuckets: mergedVisitorDayBuckets,
+      errorMinuteBuckets: mergedErrorMinuteBuckets,
+      errorDayBuckets: mergedErrorDayBuckets,
+      recentErrors: mergedRecentErrors,
+    };
+    byRoute = traffic.byRoute;
+    recentErrors = mergedRecentErrors;
+    peaks = computePeaks(mergedMinuteBuckets);
+    periodStats = computePeriodStats(
+      mergedDayBuckets,
+      mergedMinuteBuckets,
+      mergedPageViewDayBuckets,
+      mergedErrorDayBuckets,
+      legacyState.visitors || {},
+      mergedVisitorDayBuckets,
+    );
+    debug.minuteKeysCount = Object.keys(mergedMinuteBuckets).length;
+    debug.dayKeysCount = Object.keys(mergedDayBuckets).length;
+    debug.pageViewDayKeysCount = Object.keys(mergedPageViewDayBuckets).length;
+    debug.visitorHourKeysCount = Object.keys(mergedVisitorHourBuckets).length;
+    debug.visitorDayKeysCount = Object.keys(mergedVisitorDayBuckets).length;
+    debug.errorMinuteKeysCount = Object.keys(mergedErrorMinuteBuckets).length;
+    debug.errorDayKeysCount = Object.keys(mergedErrorDayBuckets).length;
+    debug.recentErrorsCount = mergedRecentErrors.length;
 
     const atomicBucketsEmpty =
       isEmptyRecord(minuteBuckets) &&
