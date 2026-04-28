@@ -4,6 +4,7 @@ import HomeView from "../views/HomeView.vue";
 import SearchView from "../views/SearchView.vue";
 import AdminView from "../views/AdminView.vue";
 import AdminHardeningView from "../views/AdminHardeningView.vue";
+import AdminStatsView from "../views/AdminStatsView.vue";
 
 const routes: RouteRecordRaw[] = [
   {
@@ -25,6 +26,11 @@ const routes: RouteRecordRaw[] = [
     path: "/admin/hardening",
     name: "admin-hardening",
     component: AdminHardeningView,
+  },
+  {
+    path: "/admin/statistik",
+    name: "admin-statistics",
+    component: AdminStatsView,
   },
 ];
 

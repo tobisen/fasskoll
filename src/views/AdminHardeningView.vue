@@ -186,6 +186,7 @@ const hardeningItems: Item[] = [
     <section v-else class="panel">
       <div class="toolbar">
         <router-link class="tab-link" to="/admin">Trafik & drift</router-link>
+        <router-link class="tab-link" to="/admin/statistik">Statistik</router-link>
         <span class="tab-link active">Blockeringsskydd</span>
       </div>
 

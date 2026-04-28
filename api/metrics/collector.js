@@ -111,6 +111,10 @@ export async function recordTrafficEvent({
         message: sanitizeErrorMessage(message),
       });
       state.traffic.recentErrors = state.traffic.recentErrors.slice(0, MAX_RECENT_ERRORS);
+      const mKey = minuteKey();
+      state.traffic.errorMinuteBuckets[mKey] =
+        (state.traffic.errorMinuteBuckets[mKey] || 0) + 1;
+      trimMinuteBuckets(state.traffic.errorMinuteBuckets);
       const dKey = dayKey();
       bumpDayBucket(state.traffic.errorDayBuckets, dKey);
       trimDayBuckets(state.traffic.errorDayBuckets);

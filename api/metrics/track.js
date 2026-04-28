@@ -9,6 +9,10 @@ function dayKey(date = new Date()) {
   return date.toISOString().slice(0, 10);
 }
 
+function hourKey(date = new Date()) {
+  return date.toISOString().slice(0, 13);
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
@@ -25,12 +29,29 @@ export default async function handler(req, res) {
 
   const state = await readMetricsState();
   const key = hashVisitorId(visitorId);
+  const now = Date.now();
+  const nowDate = new Date(now);
+  const dKey = dayKey(nowDate);
+  const hKey = hourKey(nowDate);
+  const visitorRecord =
+    state.visitors[key] && typeof state.visitors[key] === "object" ? state.visitors[key] : {};
 
   state.pageViews += 1;
-  state.visitors[key] = { lastSeenAt: Date.now() };
-  const dKey = dayKey();
+  state.visitors[key] = {
+    lastSeenAt: now,
+    lastSeenDayKey: dKey,
+    lastSeenHourKey: hKey,
+  };
   state.traffic.pageViewDayBuckets[dKey] =
     (state.traffic.pageViewDayBuckets[dKey] || 0) + 1;
+  if (visitorRecord.lastSeenDayKey !== dKey) {
+    state.traffic.visitorDayBuckets[dKey] =
+      (state.traffic.visitorDayBuckets[dKey] || 0) + 1;
+  }
+  if (visitorRecord.lastSeenHourKey !== hKey) {
+    state.traffic.visitorHourBuckets[hKey] =
+      (state.traffic.visitorHourBuckets[hKey] || 0) + 1;
+  }
   state.updatedAt = new Date().toISOString();
 
   await writeMetricsState(state);

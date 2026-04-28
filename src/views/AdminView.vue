@@ -36,6 +36,15 @@ type TrafficSummary = {
     category: string;
     message: string;
   }>;
+  buckets: {
+    minute: Record<string, number>;
+    day: Record<string, number>;
+    pageViewsByDay: Record<string, number>;
+    visitorHours: Record<string, number>;
+    visitorDays: Record<string, number>;
+    errorMinutes: Record<string, number>;
+    errorsByDay: Record<string, number>;
+  };
 };
 
 type PeakSummary = {
@@ -59,24 +68,12 @@ type FassServiceSummary = {
   lastCircuitOpenedAt: string | null;
 };
 
-type PeriodKey = "day" | "week" | "month" | "year";
-type PeriodMetric = {
-  requests: number;
-  pageViews: number;
-  errors: number;
-  uniqueVisitors: number;
-  peakRpm: number;
-  avgPerDay: number;
-  days: number;
-};
-
 const loading = ref(false);
 const error = ref("");
 const uniqueVisitors = ref<number>(0);
 const pageViews = ref<number>(0);
 const updatedAt = ref<string | null>(null);
 const metricsStorage = ref("tmp");
-const selectedPeriod = ref<PeriodKey>("day");
 const traffic = ref<TrafficSummary>({
   totalRequests: 0,
   byRoute: {
@@ -108,6 +105,15 @@ const traffic = ref<TrafficSummary>({
     },
   },
   recentErrors: [],
+  buckets: {
+    minute: {},
+    day: {},
+    pageViewsByDay: {},
+    visitorHours: {},
+    visitorDays: {},
+    errorMinutes: {},
+    errorsByDay: {},
+  },
 });
 const peaks = ref<PeakSummary>({
   peakRequestsPerMinuteLastHour: 0,
@@ -127,12 +133,6 @@ const fassService = ref<FassServiceSummary>({
   consecutiveFailures: 0,
   circuitOpenedCount: 0,
   lastCircuitOpenedAt: null,
-});
-const periodStats = ref<Record<PeriodKey, PeriodMetric>>({
-  day: { requests: 0, pageViews: 0, errors: 0, uniqueVisitors: 0, peakRpm: 0, avgPerDay: 0, days: 1 },
-  week: { requests: 0, pageViews: 0, errors: 0, uniqueVisitors: 0, peakRpm: 0, avgPerDay: 0, days: 7 },
-  month: { requests: 0, pageViews: 0, errors: 0, uniqueVisitors: 0, peakRpm: 0, avgPerDay: 0, days: 30 },
-  year: { requests: 0, pageViews: 0, errors: 0, uniqueVisitors: 0, peakRpm: 0, avgPerDay: 0, days: 365 },
 });
 
 const isAdmin = computed(
@@ -155,32 +155,23 @@ const latestError = computed(() => {
   return traffic.value.recentErrors[0];
 });
 const upstreamStatusRows = computed(() => {
-  const buckets = new Map<number, number>();
-  for (const item of traffic.value.recentErrors) {
-    const category = item.category;
-    const isUpstreamLike =
-      category === "upstream_error" ||
-      category === "proxy_error" ||
-      category === "circuit_open";
-    if (!isUpstreamLike) continue;
-    if (typeof item.status !== "number") continue;
-    buckets.set(item.status, (buckets.get(item.status) || 0) + 1);
-  }
+  const content = traffic.value.byRoute.content;
+  const stock = traffic.value.byRoute.stock;
+  const upstream429 = safeNumber(content.upstream429) + safeNumber(stock.upstream429);
+  const upstream4xx = safeNumber(content.upstream4xx) + safeNumber(stock.upstream4xx);
+  const upstream5xx = safeNumber(content.upstream5xx) + safeNumber(stock.upstream5xx);
 
-  return Array.from(buckets.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([status, count]) => ({
-      status,
-      count,
-      family:
-        status === 429
-          ? "429"
-          : status >= 500
-            ? "5xx"
-            : status >= 400
-              ? "4xx"
-              : "Övrigt",
-    }));
+  const rows: Array<{ status: string; count: number; family: string }> = [];
+  if (upstream429 > 0) {
+    rows.push({ status: "429", family: "429", count: upstream429 });
+  }
+  if (upstream4xx > 0) {
+    rows.push({ status: "4xx", family: "4xx", count: upstream4xx });
+  }
+  if (upstream5xx > 0) {
+    rows.push({ status: "5xx", family: "5xx", count: upstream5xx });
+  }
+  return rows;
 });
 const rateLimitedLast15Min = computed(() => {
   const now = Date.now();
@@ -191,7 +182,6 @@ const rateLimitedLast15Min = computed(() => {
     return Number.isFinite(ts) && now - ts <= windowMs;
   }).length;
 });
-const selectedPeriodStats = computed(() => periodStats.value[selectedPeriod.value]);
 
 function formatDate(value: string | null) {
   if (!value) return "-";
@@ -294,6 +284,40 @@ async function loadSummary() {
       recentErrors: Array.isArray(incomingTraffic?.recentErrors)
         ? incomingTraffic.recentErrors.slice(0, 20)
         : [],
+      buckets: {
+        minute:
+          incomingTraffic?.buckets && typeof incomingTraffic.buckets.minute === "object"
+            ? incomingTraffic.buckets.minute
+            : {},
+        day:
+          incomingTraffic?.buckets && typeof incomingTraffic.buckets.day === "object"
+            ? incomingTraffic.buckets.day
+            : {},
+        pageViewsByDay:
+          incomingTraffic?.buckets &&
+          typeof incomingTraffic.buckets.pageViewsByDay === "object"
+            ? incomingTraffic.buckets.pageViewsByDay
+            : {},
+        visitorHours:
+          incomingTraffic?.buckets &&
+          typeof incomingTraffic.buckets.visitorHours === "object"
+            ? incomingTraffic.buckets.visitorHours
+            : {},
+        visitorDays:
+          incomingTraffic?.buckets &&
+          typeof incomingTraffic.buckets.visitorDays === "object"
+            ? incomingTraffic.buckets.visitorDays
+            : {},
+        errorMinutes:
+          incomingTraffic?.buckets &&
+          typeof incomingTraffic.buckets.errorMinutes === "object"
+            ? incomingTraffic.buckets.errorMinutes
+            : {},
+        errorsByDay:
+          incomingTraffic?.buckets && typeof incomingTraffic.buckets.errorsByDay === "object"
+            ? incomingTraffic.buckets.errorsByDay
+            : {},
+      },
     };
 
     const incomingPeaks = payload?.peaks ?? {};
@@ -327,45 +351,6 @@ async function loadSummary() {
 
     metricsStorage.value =
       typeof payload?.metricsStorage === "string" ? payload.metricsStorage : "tmp";
-    const incomingPeriodStats = payload?.periodStats ?? {};
-    periodStats.value = {
-      day: {
-        requests: safeNumber(incomingPeriodStats?.day?.requests),
-        pageViews: safeNumber(incomingPeriodStats?.day?.pageViews),
-        errors: safeNumber(incomingPeriodStats?.day?.errors),
-        uniqueVisitors: safeNumber(incomingPeriodStats?.day?.uniqueVisitors),
-        peakRpm: safeNumber(incomingPeriodStats?.day?.peakRpm),
-        avgPerDay: safeNumber(incomingPeriodStats?.day?.avgPerDay),
-        days: safeNumber(incomingPeriodStats?.day?.days) || 1,
-      },
-      week: {
-        requests: safeNumber(incomingPeriodStats?.week?.requests),
-        pageViews: safeNumber(incomingPeriodStats?.week?.pageViews),
-        errors: safeNumber(incomingPeriodStats?.week?.errors),
-        uniqueVisitors: safeNumber(incomingPeriodStats?.week?.uniqueVisitors),
-        peakRpm: safeNumber(incomingPeriodStats?.week?.peakRpm),
-        avgPerDay: safeNumber(incomingPeriodStats?.week?.avgPerDay),
-        days: safeNumber(incomingPeriodStats?.week?.days) || 7,
-      },
-      month: {
-        requests: safeNumber(incomingPeriodStats?.month?.requests),
-        pageViews: safeNumber(incomingPeriodStats?.month?.pageViews),
-        errors: safeNumber(incomingPeriodStats?.month?.errors),
-        uniqueVisitors: safeNumber(incomingPeriodStats?.month?.uniqueVisitors),
-        peakRpm: safeNumber(incomingPeriodStats?.month?.peakRpm),
-        avgPerDay: safeNumber(incomingPeriodStats?.month?.avgPerDay),
-        days: safeNumber(incomingPeriodStats?.month?.days) || 30,
-      },
-      year: {
-        requests: safeNumber(incomingPeriodStats?.year?.requests),
-        pageViews: safeNumber(incomingPeriodStats?.year?.pageViews),
-        errors: safeNumber(incomingPeriodStats?.year?.errors),
-        uniqueVisitors: safeNumber(incomingPeriodStats?.year?.uniqueVisitors),
-        peakRpm: safeNumber(incomingPeriodStats?.year?.peakRpm),
-        avgPerDay: safeNumber(incomingPeriodStats?.year?.avgPerDay),
-        days: safeNumber(incomingPeriodStats?.year?.days) || 365,
-      },
-    };
   } catch (err) {
     error.value = err instanceof Error ? err.message : "Okänt fel";
   } finally {
@@ -403,6 +388,7 @@ watch(
     <section v-else class="panel">
       <div class="toolbar-links">
         <span class="tab-link active">Trafik & drift</span>
+        <router-link class="tab-link" to="/admin/statistik">Statistik</router-link>
         <router-link class="tab-link" to="/admin/hardening">Blockeringsskydd</router-link>
       </div>
 
@@ -458,40 +444,6 @@ watch(
         <button type="button" :disabled="loading" @click="loadSummary">
           {{ loading ? "Laddar..." : "Uppdatera" }}
         </button>
-      </div>
-
-      <h2 class="section-title">Periodstatistik</h2>
-      <div class="toolbar-links">
-        <button class="tab-link" :class="{ active: selectedPeriod === 'day' }" type="button" @click="selectedPeriod = 'day'">Dag</button>
-        <button class="tab-link" :class="{ active: selectedPeriod === 'week' }" type="button" @click="selectedPeriod = 'week'">Vecka</button>
-        <button class="tab-link" :class="{ active: selectedPeriod === 'month' }" type="button" @click="selectedPeriod = 'month'">Månad</button>
-        <button class="tab-link" :class="{ active: selectedPeriod === 'year' }" type="button" @click="selectedPeriod = 'year'">År</button>
-      </div>
-      <div class="stats-grid">
-        <article class="stat-card">
-          <h2>Besökare (vald period)</h2>
-          <p class="stat-value">{{ selectedPeriodStats.uniqueVisitors }}</p>
-        </article>
-        <article class="stat-card">
-          <h2>Sidvisningar (vald period)</h2>
-          <p class="stat-value">{{ selectedPeriodStats.pageViews }}</p>
-        </article>
-        <article class="stat-card">
-          <h2>Fel (vald period)</h2>
-          <p class="stat-value">{{ selectedPeriodStats.errors }}</p>
-        </article>
-        <article class="stat-card">
-          <h2>Anrop (vald period)</h2>
-          <p class="stat-value">{{ selectedPeriodStats.requests }}</p>
-        </article>
-        <article class="stat-card">
-          <h2>Topp RPM (vald period)</h2>
-          <p class="stat-value">{{ selectedPeriodStats.peakRpm }}</p>
-        </article>
-        <article class="stat-card">
-          <h2>Snitt anrop/dag</h2>
-          <p class="stat-value">{{ selectedPeriodStats.avgPerDay }}</p>
-        </article>
       </div>
 
       <h2 class="section-title">Trafik per endpoint</h2>
@@ -552,42 +504,58 @@ watch(
       <h2 class="section-title">Fass service-läge</h2>
       <div class="table-wrap">
         <table>
+          <thead>
+            <tr>
+              <th>Inställning</th>
+              <th>Värde</th>
+              <th>Beskrivning</th>
+            </tr>
+          </thead>
           <tbody>
             <tr>
               <th>Timeout per försök</th>
               <td>{{ fassService.requestTimeoutMs }} ms</td>
+              <td>Max tid för ett enskilt anrop mot Fass innan det avbryts.</td>
             </tr>
             <tr>
               <th>Max total requesttid</th>
               <td>{{ fassService.maxTotalRequestTimeMs }} ms</td>
+              <td>Total tidsbudget för hela kedjan inklusive retries.</td>
             </tr>
             <tr>
               <th>Max retries</th>
               <td>{{ fassService.retryMaxAttempts }}</td>
+              <td>Hur många nya försök som görs efter ett misslyckat anrop.</td>
             </tr>
             <tr>
               <th>Circuit tröskel</th>
               <td>{{ fassService.circuitBreakerThreshold }}</td>
+              <td>Antal fel i rad som krävs för att öppna circuit breaker.</td>
             </tr>
             <tr>
               <th>Circuit cooldown</th>
               <td>{{ fassService.circuitBreakerCooldownMs }} ms</td>
+              <td>Hur länge circuit breaker hålls öppen innan nya försök tillåts.</td>
             </tr>
             <tr>
               <th>Consecutive failures</th>
               <td>{{ fassService.consecutiveFailures }}</td>
+              <td>Nuvarande antal fel i rad sedan senaste lyckade anrop.</td>
             </tr>
             <tr>
               <th>Antal öppningar</th>
               <td>{{ fassService.circuitOpenedCount }}</td>
+              <td>Totalt antal gånger circuit breaker har öppnats.</td>
             </tr>
             <tr>
               <th>Senast öppnad</th>
               <td>{{ formatDate(fassService.lastCircuitOpenedAt) }}</td>
+              <td>Tidpunkt då circuit breaker senast gick till öppet läge.</td>
             </tr>
             <tr>
               <th>Öppen till</th>
               <td>{{ formatDate(fassService.circuitOpenUntil) }}</td>
+              <td>När ett öppet circuit-läge tidigast släpper och anrop kan återupptas.</td>
             </tr>
           </tbody>
         </table>
@@ -731,6 +699,59 @@ button {
   font-size: 1.05rem;
 }
 
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  gap: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.chart-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.8rem;
+  background: var(--surface-strong);
+}
+
+.chart-card h3 {
+  margin: 0 0 0.6rem;
+  font-size: 0.95rem;
+}
+
+.bars {
+  height: 170px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.5rem;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.3rem;
+  overflow-x: auto;
+  background: #fff;
+}
+
+.bar-col {
+  min-width: 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3rem;
+}
+
+.bar {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 6px 6px 0 0;
+  background: linear-gradient(180deg, var(--primary) 0%, var(--primary-strong) 100%);
+}
+
+.bar-label {
+  font-size: 0.66rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line);
@@ -794,6 +815,10 @@ th {
   }
 
   .two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .charts-grid {
     grid-template-columns: 1fr;
   }
 }

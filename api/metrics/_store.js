@@ -50,6 +50,9 @@ function initialState() {
       minuteBuckets: {},
       dayBuckets: {},
       pageViewDayBuckets: {},
+      visitorHourBuckets: {},
+      visitorDayBuckets: {},
+      errorMinuteBuckets: {},
       errorDayBuckets: {},
       recentErrors: [],
     },
@@ -124,7 +127,13 @@ function normalizeVisitors(raw) {
 
     if (lastSeenAt <= 0) continue;
     if (now - lastSeenAt > VISITOR_RETENTION_MS) continue;
-    normalized[key] = { lastSeenAt };
+    const existing =
+      value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const lastSeenDayKey =
+      typeof existing.lastSeenDayKey === "string" ? existing.lastSeenDayKey : null;
+    const lastSeenHourKey =
+      typeof existing.lastSeenHourKey === "string" ? existing.lastSeenHourKey : null;
+    normalized[key] = { lastSeenAt, lastSeenDayKey, lastSeenHourKey };
   }
 
   return normalized;
@@ -170,6 +179,18 @@ function normalizeTraffic(raw) {
     raw.pageViewDayBuckets && typeof raw.pageViewDayBuckets === "object"
       ? raw.pageViewDayBuckets
       : {};
+  const visitorHourBucketsRaw =
+    raw.visitorHourBuckets && typeof raw.visitorHourBuckets === "object"
+      ? raw.visitorHourBuckets
+      : {};
+  const visitorDayBucketsRaw =
+    raw.visitorDayBuckets && typeof raw.visitorDayBuckets === "object"
+      ? raw.visitorDayBuckets
+      : {};
+  const errorMinuteBucketsRaw =
+    raw.errorMinuteBuckets && typeof raw.errorMinuteBuckets === "object"
+      ? raw.errorMinuteBuckets
+      : {};
   const errorDayBucketsRaw =
     raw.errorDayBuckets && typeof raw.errorDayBuckets === "object"
       ? raw.errorDayBuckets
@@ -190,6 +211,21 @@ function normalizeTraffic(raw) {
   for (const [key, value] of Object.entries(pageViewDayBucketsRaw)) {
     if (typeof key !== "string" || typeof value !== "number" || value < 0) continue;
     pageViewDayBuckets[key] = value;
+  }
+  const visitorHourBuckets = {};
+  for (const [key, value] of Object.entries(visitorHourBucketsRaw)) {
+    if (typeof key !== "string" || typeof value !== "number" || value < 0) continue;
+    visitorHourBuckets[key] = value;
+  }
+  const visitorDayBuckets = {};
+  for (const [key, value] of Object.entries(visitorDayBucketsRaw)) {
+    if (typeof key !== "string" || typeof value !== "number" || value < 0) continue;
+    visitorDayBuckets[key] = value;
+  }
+  const errorMinuteBuckets = {};
+  for (const [key, value] of Object.entries(errorMinuteBucketsRaw)) {
+    if (typeof key !== "string" || typeof value !== "number" || value < 0) continue;
+    errorMinuteBuckets[key] = value;
   }
   const errorDayBuckets = {};
   for (const [key, value] of Object.entries(errorDayBucketsRaw)) {
@@ -218,6 +254,9 @@ function normalizeTraffic(raw) {
     minuteBuckets,
     dayBuckets,
     pageViewDayBuckets,
+    visitorHourBuckets,
+    visitorDayBuckets,
+    errorMinuteBuckets,
     errorDayBuckets,
     recentErrors,
   };

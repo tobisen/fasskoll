@@ -219,6 +219,7 @@ watch(
           Utrogestan
         </router-link>
         <router-link v-if="currentUsername === 'admin'" to="/admin">Admin</router-link>
+        <router-link v-if="currentUsername === 'admin'" to="/admin/statistik">Statistik</router-link>
         <router-link v-if="currentUsername === 'admin'" to="/admin/hardening">Skydd</router-link>
       </nav>
 
