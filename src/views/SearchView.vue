@@ -58,6 +58,11 @@ const searchCenter = ref<{ latitude: number; longitude: number } | null>(null);
 const PUBLIC_MEDICINES = new Set(["estradot", "lenzetto", "divigel", "estrogel"]);
 const infoMessage = ref("");
 const lastAutostartKey = ref("");
+const SEARCH_COOLDOWN_MS = 8_000;
+const lastStockRequestAt = ref(0);
+const lastStockRequestKey = ref("");
+const lastMedicineRequestAt = ref(0);
+const lastMedicineRequestKey = ref("");
 
 const STOCK_GROUP_LABELS: Record<string, string> = {
   IN_STOCK: "I lager",
@@ -98,6 +103,14 @@ function setUiError(message: string) {
   }
 
   error.value = isRateLimitErrorMessage(message) ? message : "";
+}
+
+function canRunCooldown(lastAt: number, lastKey: string, nextKey: string): boolean {
+  if (!lastAt) return true;
+  const elapsed = Date.now() - lastAt;
+  if (elapsed >= SEARCH_COOLDOWN_MS) return true;
+  if (lastKey !== nextKey) return true;
+  return false;
 }
 
 function optionDisplayLabel(option: FormStrengthOption): string {
@@ -421,6 +434,7 @@ async function loadFormStrengthOptions(sourcePackageIds: string[]) {
 
 async function handleMedicineSearch() {
   const normalizedQuery = medicineQuery.value.trim().toLowerCase();
+  const medicineRequestKey = normalizedQuery;
   const guestAllowedMedicine = PUBLIC_MEDICINES.has(normalizedQuery);
 
   if (!props.isLoggedIn && !guestAllowedMedicine) {
@@ -435,7 +449,16 @@ async function handleMedicineSearch() {
     return;
   }
 
+  if (!canRunCooldown(lastMedicineRequestAt.value, lastMedicineRequestKey.value, medicineRequestKey)) {
+    if (props.isLoggedIn) {
+      infoMessage.value = "Vänta några sekunder innan du söker samma läkemedel igen.";
+    }
+    return;
+  }
+
   loadingMedicineSearch.value = true;
+  lastMedicineRequestAt.value = Date.now();
+  lastMedicineRequestKey.value = medicineRequestKey;
   error.value = "";
   selectedMedicineLabel.value = "";
 
@@ -530,6 +553,20 @@ async function checkStock() {
           packageId: packageId.value.trim(),
         } as FormStrengthOption,
       ];
+
+  const stockRequestKey = JSON.stringify({
+    zip: zipCode.value.trim(),
+    radius: selectedRadiusKm.value,
+    variants: optionsToCheck.map((option) => option.packageId),
+  });
+  if (!canRunCooldown(lastStockRequestAt.value, lastStockRequestKey.value, stockRequestKey)) {
+    if (props.isLoggedIn) {
+      infoMessage.value = "Vänta några sekunder innan du söker samma lagerstatus igen.";
+    }
+    return;
+  }
+  lastStockRequestAt.value = Date.now();
+  lastStockRequestKey.value = stockRequestKey;
 
   try {
     try {
