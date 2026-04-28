@@ -775,6 +775,12 @@ watch(selectedRadiusKm, () => {
         <option :value="50">50 km</option>
       </select>
 
+      <div v-if="!props.isLoggedIn">
+        <button type="button" :disabled="loading || !zipCodeIsValid()" @click="checkStock">
+          {{ loading ? "Laddar..." : "Sök lagerstatus" }}
+        </button>
+      </div>
+
       <p v-if="error" class="error-text">{{ error }}</p>
       <p v-if="!error && infoMessage" class="warn-text">{{ infoMessage }}</p>
       <p v-if="!error && unavailableStrengths.length > 0" class="warn-text">
