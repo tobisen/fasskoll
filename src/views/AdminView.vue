@@ -187,7 +187,7 @@ function renderErrorMessage(item: {
   message: string;
 }) {
   if (
-    item.message === "Upstream returned error status" &&
+    item.message.startsWith("Upstream returned error status") &&
     typeof item.status === "number"
   ) {
     return `${item.message} (${item.status})`;

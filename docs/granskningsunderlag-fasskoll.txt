@@ -1,6 +1,6 @@
 # Fasskoll – granskningsunderlag inför publicering
 
-Senast uppdaterad: 2026-04-27  
+Senast uppdaterad: 2026-04-28  
 Projekt: Fasskoll (intern hobbytjänst)
 
 ## 1. Syfte och scope
@@ -103,14 +103,21 @@ Tjänsten är uttryckligen markerad som **ej officiell**.
 ## 6. Åtgärder för att minska risk för blockering
 
 ### 6.1 Rate limiting
-För oinloggade, per IP:
-- `/api/content`: 8 req/min, block 10 min
-- `/api/stock`: 3 req/min, block 20 min
+- Oinloggade begränsas per anonym `guest_id` + IP + user-agent (minskar korspåverkan mellan gäster)
+- Inloggade begränsas per session (`username + sessionNonce`)
+- Nivåer är env-styrda (inte hårdkodade i drift)
+- Nuvarande standardvärden i kod:
+  - `/api/content` gäst: 24 req/min, block 3 min
+  - `/api/content` inloggad: 120 req/min, block 2 min
+  - `/api/stock` gäst: 8 req/min, block 5 min
+  - `/api/stock` inloggad: 40 req/min, block 2 min
 
 ### 6.2 Cache och återanvändning
 - Cache per `zipCode + packageId`
 - TTL default: 90 minuter (`FASS_STOCK_CACHE_TTL_MS`)
 - Separat zip-kontextcache med TTL
+- `GET /api/content` har svarscache med TTL (`FASS_CONTENT_CACHE_TTL_MS`) och cache-hit sker före upstream/rate-limit
+- KV-baserad delad cache används när KV-env finns (stabilare i serverless-produktion)
 - Minskar upprepade anrop mot Fass
 
 ### 6.3 Timeout + retries + backoff + jitter
@@ -142,6 +149,7 @@ I service-lagret:
 - `byRoute`, `recentErrors`, `minuteBuckets` för toppanalys
 - Admin-sammanställning via `/api/metrics/summary`
 - Admin visar även antal anrop mot Fass (upstream) vs cacheträffar
+- Admin visar upstream-fel uppdelat per faktisk statuskod (t.ex. 400, 429, 502, 503)
 
 ### 7.2 Besöksmätning
 - Pageviews + unika besökare via `/api/metrics/track`
@@ -152,7 +160,7 @@ I service-lagret:
 - Aggregerad trafikdata och begränsad felhistorik
 - Visitor-data är hashad och retentionstyrd med pruning
 - Felmeddelanden i metrics saneras/trunkeras för att minska PII-risk
-- Metrics lagras i runtime-fil (`/tmp/fasskoll-metrics.json`) och är driftteknisk
+- Metrics lagras primärt i KV när konfigurerat, annars fallback till runtime-fil (`/tmp/fasskoll-metrics.json`)
 
 ## 8. Kvarvarande risker / kända begränsningar
 
@@ -212,6 +220,18 @@ I service-lagret:
 - `FASS_CIRCUIT_BREAKER_THRESHOLD=6`
 - `FASS_CIRCUIT_BREAKER_COOLDOWN_MS=120000`
 - `METRICS_VISITOR_RETENTION_DAYS=30`
+- `FASS_CONTENT_CACHE_TTL_MS=300000`
+- `FASS_GUEST_CONTENT_RATE_LIMIT_PER_MIN=24`
+- `FASS_GUEST_CONTENT_BLOCK_MINUTES=3`
+- `FASS_AUTH_CONTENT_RATE_LIMIT_PER_MIN=120`
+- `FASS_AUTH_CONTENT_BLOCK_MINUTES=2`
+- `FASS_GUEST_STOCK_RATE_LIMIT_PER_MIN=8`
+- `FASS_GUEST_STOCK_BLOCK_MINUTES=5`
+- `FASS_AUTH_STOCK_RATE_LIMIT_PER_MIN=40`
+- `FASS_AUTH_STOCK_BLOCK_MINUTES=2`
+- `KV_REST_API_URL=...`
+- `KV_REST_API_TOKEN=...`
+- `METRICS_KV_KEY=fasskoll:metrics:v1`
 
 ## 11. Samlad hardening-status
 
@@ -223,15 +243,16 @@ Implementerat:
 - Centraliserat Fass service/client-lager
 - Backend-proxy (ingen direkt frontend->Fass i prod)
 - Strikt proxy allowlist (origin/schema/path + override-skydd)
-- Hård rate limiting för oinloggade
+- Hård rate limiting för gäster och inloggade (sessionbaserat för auth)
 - Cache med TTL per packageId+zip
+- Cache av `GET /api/content` före upstream-anrop
 - Endast användartriggade anrop (ingen polling)
 - Timeout/retries/felhantering
 - Max total requesttid över retry-kedja
 - Kill switch
 - Trafik/fel/topp-loggning
 - Circuit breaker loggas och exponeras i admin
-- Admin visar upstream-anrop vs cacheträffar
+- Admin visar upstream-anrop vs cacheträffar + upstream-felkoder
 - Session-cookie härdad (HttpOnly/Secure/SameSite=Strict/Max-Age)
 - Sessionrotation vid login
 - CSRF-skydd (SameSite=Strict + origin-kontroll)
@@ -243,14 +264,14 @@ Implementerat:
 - Design för API-förändring/blockering (circuit breaker + fallback)
 
 Delvis:
-- Begränsning per användare/session (idag främst per IP för oinloggade)
+- Inga stora delområden återstår i grundhärdningen; nästa steg är främst finjustering av nivåer/alerts.
 
 ## 12. Föreslagna nästa steg innan större exponering
 
-1. Lägg till kompletterande rate limit per autentiserad session/användare.  
-2. Lägg till enkel audit-logg export för admin (CSV/JSON av aggregat, ej PII).  
-3. Lägg till feature-flag för att snabbt begränsa till enbart publika snabbval.  
-4. Dokumentera incidentrutin: när kill switch ska aktiveras och hur återstart sker.
+1. Lägg till enkel audit-logg export för admin (CSV/JSON av aggregat, ej PII).  
+2. Lägg till feature-flag för att snabbt begränsa till enbart publika snabbval.  
+3. Dokumentera incidentrutin: när kill switch ska aktiveras och hur återstart sker.  
+4. Lägg notifiering (mail/slack) vid nattliga smoke-test-fel.
 
 ---
 

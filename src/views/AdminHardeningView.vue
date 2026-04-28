@@ -75,12 +75,12 @@ const hardeningItems: Item[] = [
   {
     title: "Inför hård rate limiting per användare/IP",
     status: "implemented",
-    details: "Hård begränsning för oinloggade per IP på content/stock-routes.",
+    details: "Gäster begränsas via anonym guest-identitet + IP/UA, inloggade per session på content/stock-routes.",
   },
   {
     title: "Cachea svar per packageId + zipCode med TTL",
     status: "implemented",
-    details: "Stock-cache per zip+package med lång TTL och stale fallback.",
+    details: "Stock-cache per zip+package med lång TTL och stale fallback, samt cache för GET /api/content.",
   },
   {
     title: "Kör endast anrop på användarklick (ingen polling)",
@@ -119,8 +119,8 @@ const hardeningItems: Item[] = [
   },
   {
     title: "Begränsa antal sökningar per minut/session",
-    status: "partial",
-    details: "Per IP finns. För autentiserade användare återstår finmaskig per-session/per-user kvotering.",
+    status: "implemented",
+    details: "Inloggade begränsas per session, gäster via anonym identitet + IP/UA.",
   },
   {
     title: "Validera all input strikt (zip, packageId)",

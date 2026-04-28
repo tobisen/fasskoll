@@ -38,7 +38,8 @@ Tjänsten är en intern hobbylösning och är tydligt markerad som **ej officiel
 ## Skydd mot blockering och instabilitet
 - All Fass-trafik via backend (ingen direkt frontend->Fass i prod)
 - Starkt begränsad proxy allowlist (origin + path-prefix + override-skydd)
-- Rate limiting för oinloggade per IP
+- Rate limiting för oinloggade via anonym guest-identitet + IP/UA, och för inloggade per session
+- `/api/content` cachear GET-svar och använder cache före upstream-anrop/rate-limit
 - Cache per `zipCode + packageId` med TTL
 - Stale cache fallback vid uppströmsfel
 - Timeout + retries + backoff/jitter
@@ -94,6 +95,19 @@ npm run dev
 ## Bygg
 ```bash
 npm run build
+```
+
+## E2E smoke-tests
+Playwright används för nattlig smoke-test i GitHub Actions mot produktion.
+
+Kör lokalt:
+```bash
+npm run test:e2e
+```
+
+Mot valfri miljö:
+```bash
+PLAYWRIGHT_BASE_URL=https://fasskoll.vercel.app npm run test:e2e
 ```
 
 ## Granskningsunderlag
