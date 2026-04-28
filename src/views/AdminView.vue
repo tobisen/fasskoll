@@ -178,6 +178,21 @@ function formatDate(value: string | null) {
   }).format(date);
 }
 
+function formatMinuteKey(value: string) {
+  const date = new Date(`${value}:00Z`);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("sv-SE", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Stockholm",
+  }).format(date);
+}
+
 function safeNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
@@ -474,7 +489,7 @@ watch(
           <h2 class="section-title">Toppminuter</h2>
           <ul class="list">
             <li v-for="item in peaks.topPeaks" :key="`${item.minute}-${item.count}`">
-              <span>{{ item.minute }}</span>
+              <span>{{ formatMinuteKey(item.minute) }}</span>
               <strong>{{ item.count }} req/min</strong>
             </li>
             <li v-if="peaks.topPeaks.length === 0">Inga toppdata ännu.</li>
