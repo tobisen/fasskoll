@@ -126,7 +126,16 @@ const routeRows = computed(() => [
   { route: "stock", ...traffic.value.byRoute.stock },
 ]);
 
-const errorCount = computed(() => traffic.value.recentErrors.length);
+const totalFailedCount = computed(
+  () => traffic.value.byRoute.content.failed + traffic.value.byRoute.stock.failed,
+);
+const recentErrorCount = computed(() => traffic.value.recentErrors.length);
+const latestError = computed(() => {
+  if (traffic.value.recentErrors.length === 0) {
+    return null;
+  }
+  return traffic.value.recentErrors[0];
+});
 const upstreamStatusRows = computed(() => {
   const buckets = new Map<number, number>();
   for (const item of traffic.value.recentErrors) {
@@ -353,16 +362,23 @@ watch(
           <p class="stat-value">{{ traffic.totalRequests }}</p>
         </article>
         <article class="stat-card">
-          <h2>Fel (senaste logg)</h2>
-          <p class="stat-value">{{ errorCount }}</p>
+          <h2>Fel (totalt)</h2>
+          <p class="stat-value">{{ totalFailedCount }}</p>
+          <p class="small" v-if="latestError">
+            {{ formatDate(latestError.timestamp) }}
+            <span v-if="latestError.status"> · {{ latestError.status }}</span>
+          </p>
+          <p class="small" v-else>-</p>
         </article>
         <article class="stat-card">
           <h2>Topp RPM (1h)</h2>
           <p class="stat-value">{{ peaks.peakRequestsPerMinuteLastHour }}</p>
+          <p class="small">Anrop 1h: {{ peaks.requestsLastHour }}</p>
         </article>
         <article class="stat-card">
           <h2>Topp RPM (24h)</h2>
           <p class="stat-value">{{ peaks.peakRequestsPerMinuteLast24h }}</p>
+          <p class="small">Anrop 24h: {{ peaks.requestsLast24h }}</p>
         </article>
         <article class="stat-card">
           <h2>Circuit breaker</h2>
@@ -371,6 +387,7 @@ watch(
         <article class="stat-card">
           <h2>Rate limit (15 min)</h2>
           <p class="stat-value">{{ rateLimitedLast15Min }}</p>
+          <p class="small">Senaste felposter: {{ recentErrorCount }}</p>
         </article>
       </div>
 
