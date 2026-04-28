@@ -223,6 +223,9 @@ const reqDay = computed(() => buildDayByHour(buckets.value.minute));
 const reqWeek = computed(() => buildWeekByDay(buckets.value.day));
 const reqMonth = computed(() => buildMonthByWeek(buckets.value.day));
 const reqYear = computed(() => buildYearByMonth(buckets.value.day));
+const reqWeekTotal = computed(() => reqWeek.value.values.reduce((sum, value) => sum + safeNumber(value), 0));
+const reqMonthTotal = computed(() => reqMonth.value.values.reduce((sum, value) => sum + safeNumber(value), 0));
+const reqYearTotal = computed(() => reqYear.value.values.reduce((sum, value) => sum + safeNumber(value), 0));
 
 const visitorsDay = computed(() => {
   const base = buildDayByHour(buckets.value.visitorHours);
@@ -299,7 +302,12 @@ const visitorsYearFinal = computed(() =>
 const errorsWeekFinal = computed(() =>
   withMissingDistributed(
     errorsWeek.value,
-    safeNumber(periodStats.value.week.errors),
+    Math.max(
+      safeNumber(periodStats.value.week.errors),
+      reqYearTotal.value > 0
+        ? Math.round((reqWeekTotal.value / reqYearTotal.value) * safeNumber(totalErrors.value))
+        : 0,
+    ),
     reqWeek.value.values.map((v) => safeNumber(v)),
   ),
 );
@@ -307,7 +315,12 @@ const errorsWeekFinal = computed(() =>
 const errorsMonthFinal = computed(() =>
   withMissingDistributed(
     errorsMonth.value,
-    safeNumber(periodStats.value.month.errors),
+    Math.max(
+      safeNumber(periodStats.value.month.errors),
+      reqYearTotal.value > 0
+        ? Math.round((reqMonthTotal.value / reqYearTotal.value) * safeNumber(totalErrors.value))
+        : 0,
+    ),
     reqMonth.value.values.map((v) => safeNumber(v)),
   ),
 );
@@ -315,7 +328,7 @@ const errorsMonthFinal = computed(() =>
 const errorsYearFinal = computed(() =>
   withMissingDistributed(
     errorsYear.value,
-    safeNumber(periodStats.value.year.errors),
+    Math.max(safeNumber(periodStats.value.year.errors), safeNumber(totalErrors.value)),
     reqYear.value.values.map((v) => safeNumber(v)),
   ),
 );
