@@ -17,11 +17,11 @@ const ZIP_CONTEXT_CACHE_TTL_MS =
 const MAX_VARIANTS = 25;
 const GUEST_STOCK_RATE_LIMIT_PER_MIN = Math.max(
   1,
-  Math.min(Number(process.env.FASS_GUEST_STOCK_RATE_LIMIT_PER_MIN) || 3, 30),
+  Math.min(Number(process.env.FASS_GUEST_STOCK_RATE_LIMIT_PER_MIN) || 8, 30),
 );
 const GUEST_STOCK_BLOCK_MINUTES = Math.max(
   1,
-  Math.min(Number(process.env.FASS_GUEST_STOCK_BLOCK_MINUTES) || 20, 120),
+  Math.min(Number(process.env.FASS_GUEST_STOCK_BLOCK_MINUTES) || 5, 120),
 );
 const AUTH_STOCK_RATE_LIMIT_PER_MIN = Math.max(
   5,
