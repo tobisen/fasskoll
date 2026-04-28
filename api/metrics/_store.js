@@ -266,6 +266,8 @@ function normalizeTraffic(raw) {
     return initialState().traffic;
   }
 
+  const bucketsRaw = raw.buckets && typeof raw.buckets === "object" ? raw.buckets : {};
+
   const byRouteRaw = raw.byRoute && typeof raw.byRoute === "object" ? raw.byRoute : {};
   const minuteBucketsRaw =
     raw.minuteBuckets && typeof raw.minuteBuckets === "object" ? raw.minuteBuckets : {};
@@ -291,40 +293,65 @@ function normalizeTraffic(raw) {
     raw.errorDayBuckets && typeof raw.errorDayBuckets === "object"
       ? raw.errorDayBuckets
       : {};
+  // Backward compatibility: older schema stored buckets under traffic.buckets.*
+  const minuteBucketsLegacyRaw =
+    bucketsRaw.minute && typeof bucketsRaw.minute === "object" ? bucketsRaw.minute : {};
+  const dayBucketsLegacyRaw =
+    bucketsRaw.day && typeof bucketsRaw.day === "object" ? bucketsRaw.day : {};
+  const pageViewDayBucketsLegacyRaw =
+    bucketsRaw.pageViewsByDay && typeof bucketsRaw.pageViewsByDay === "object"
+      ? bucketsRaw.pageViewsByDay
+      : {};
+  const visitorHourBucketsLegacyRaw =
+    bucketsRaw.visitorHours && typeof bucketsRaw.visitorHours === "object"
+      ? bucketsRaw.visitorHours
+      : {};
+  const visitorDayBucketsLegacyRaw =
+    bucketsRaw.visitorDays && typeof bucketsRaw.visitorDays === "object"
+      ? bucketsRaw.visitorDays
+      : {};
+  const errorMinuteBucketsLegacyRaw =
+    bucketsRaw.errorMinutes && typeof bucketsRaw.errorMinutes === "object"
+      ? bucketsRaw.errorMinutes
+      : {};
+  const errorDayBucketsLegacyRaw =
+    bucketsRaw.errorsByDay && typeof bucketsRaw.errorsByDay === "object"
+      ? bucketsRaw.errorsByDay
+      : {};
   const recentErrorsRaw = Array.isArray(raw.recentErrors) ? raw.recentErrors : [];
 
   const minuteBuckets = {};
-  for (const [key, value] of Object.entries(minuteBucketsRaw)) {
+  for (const [key, value] of Object.entries({ ...minuteBucketsLegacyRaw, ...minuteBucketsRaw })) {
     if (typeof key !== "string" || typeof value !== "number" || value < 0) continue;
     minuteBuckets[key] = value;
   }
   const dayBuckets = {};
-  for (const [key, value] of Object.entries(dayBucketsRaw)) {
+  for (const [key, value] of Object.entries({ ...dayBucketsLegacyRaw, ...dayBucketsRaw })) {
     if (typeof key !== "string" || typeof value !== "number" || value < 0) continue;
     dayBuckets[key] = value;
   }
   const pageViewDayBuckets = {};
-  for (const [key, value] of Object.entries(pageViewDayBucketsRaw)) {
+  for (const [key, value] of Object.entries({ ...pageViewDayBucketsLegacyRaw, ...pageViewDayBucketsRaw })) {
     if (typeof key !== "string" || typeof value !== "number" || value < 0) continue;
     pageViewDayBuckets[key] = value;
   }
   const visitorHourBuckets = {};
-  for (const [key, value] of Object.entries(visitorHourBucketsRaw)) {
+  for (const [key, value] of Object.entries({ ...visitorHourBucketsLegacyRaw, ...visitorHourBucketsRaw })) {
     if (typeof key !== "string" || typeof value !== "number" || value < 0) continue;
     visitorHourBuckets[key] = value;
   }
   const visitorDayBuckets = {};
-  for (const [key, value] of Object.entries(visitorDayBucketsRaw)) {
+  for (const [key, value] of Object.entries({ ...visitorDayBucketsLegacyRaw, ...visitorDayBucketsRaw })) {
     if (typeof key !== "string" || typeof value !== "number" || value < 0) continue;
     visitorDayBuckets[key] = value;
   }
   const errorMinuteBuckets = {};
-  for (const [key, value] of Object.entries(errorMinuteBucketsRaw)) {
+  for (const [key, value] of Object.entries({ ...errorMinuteBucketsLegacyRaw, ...errorMinuteBucketsRaw })) {
     if (typeof key !== "string" || typeof value !== "number" || value < 0) continue;
     errorMinuteBuckets[key] = value;
   }
   const errorDayBuckets = {};
-  for (const [key, value] of Object.entries(errorDayBucketsRaw)) {
+  for (const [key, value] of Object.entries({ ...errorDayBucketsLegacyRaw, ...errorDayBucketsRaw })) {
     if (typeof key !== "string" || typeof value !== "number" || value < 0) continue;
     errorDayBuckets[key] = value;
   }
