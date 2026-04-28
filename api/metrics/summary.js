@@ -219,8 +219,21 @@ export default async function handler(req, res) {
   let peaks;
   let periodStats;
   let recentErrors = [];
+  let debug = {
+    usingKv: false,
+    usedLegacyFallback: false,
+    minuteKeysCount: 0,
+    dayKeysCount: 0,
+    pageViewDayKeysCount: 0,
+    visitorHourKeysCount: 0,
+    visitorDayKeysCount: 0,
+    errorMinuteKeysCount: 0,
+    errorDayKeysCount: 0,
+    recentErrorsCount: 0,
+  };
 
   if (hasKvMetricsConfig()) {
+    debug.usingKv = true;
     const [
       routeContentRaw,
       routeStockRaw,
@@ -264,6 +277,13 @@ export default async function handler(req, res) {
     const visitorDayBuckets = toNumberRecord(visitorsDayRaw);
     const errorMinuteBuckets = toNumberRecord(errorsMinuteRaw);
     const errorDayBuckets = toNumberRecord(errorsDayRaw);
+    debug.minuteKeysCount = Object.keys(minuteBuckets).length;
+    debug.dayKeysCount = Object.keys(dayBuckets).length;
+    debug.pageViewDayKeysCount = Object.keys(pageViewDayBuckets).length;
+    debug.visitorHourKeysCount = Object.keys(visitorHourBuckets).length;
+    debug.visitorDayKeysCount = Object.keys(visitorDayBuckets).length;
+    debug.errorMinuteKeysCount = Object.keys(errorMinuteBuckets).length;
+    debug.errorDayKeysCount = Object.keys(errorDayBuckets).length;
 
     const parseRecentErrors = Array.isArray(recentErrorsRaw)
       ? recentErrorsRaw
@@ -277,6 +297,7 @@ export default async function handler(req, res) {
           .filter((item) => item && typeof item === "object")
       : [];
     recentErrors = parseRecentErrors;
+    debug.recentErrorsCount = recentErrors.length;
 
     traffic = {
       totalRequests:
@@ -310,6 +331,7 @@ export default async function handler(req, res) {
       isEmptyRecord(dayBuckets) &&
       isEmptyRecord(pageViewDayBuckets);
     if (atomicBucketsEmpty) {
+      debug.usedLegacyFallback = true;
       const legacyState = await readMetricsState();
       const legacyTraffic = legacyState.traffic || {};
       const legacyByRoute = legacyTraffic.byRoute || {};
@@ -322,6 +344,14 @@ export default async function handler(req, res) {
       recentErrors = Array.isArray(legacyTraffic.recentErrors)
         ? legacyTraffic.recentErrors.slice(0, 20)
         : recentErrors;
+      debug.minuteKeysCount = Object.keys(legacyTraffic.minuteBuckets || {}).length;
+      debug.dayKeysCount = Object.keys(legacyTraffic.dayBuckets || {}).length;
+      debug.pageViewDayKeysCount = Object.keys(legacyTraffic.pageViewDayBuckets || {}).length;
+      debug.visitorHourKeysCount = Object.keys(legacyTraffic.visitorHourBuckets || {}).length;
+      debug.visitorDayKeysCount = Object.keys(legacyTraffic.visitorDayBuckets || {}).length;
+      debug.errorMinuteKeysCount = Object.keys(legacyTraffic.errorMinuteBuckets || {}).length;
+      debug.errorDayKeysCount = Object.keys(legacyTraffic.errorDayBuckets || {}).length;
+      debug.recentErrorsCount = recentErrors.length;
       peaks = computePeaks(legacyTraffic.minuteBuckets || {});
       periodStats = computePeriodStats(
         legacyTraffic.dayBuckets || {},
@@ -354,6 +384,18 @@ export default async function handler(req, res) {
     recentErrors = Array.isArray(traffic.recentErrors)
       ? traffic.recentErrors.slice(0, 20)
       : [];
+    debug = {
+      usingKv: false,
+      usedLegacyFallback: false,
+      minuteKeysCount: Object.keys(traffic.minuteBuckets || {}).length,
+      dayKeysCount: Object.keys(traffic.dayBuckets || {}).length,
+      pageViewDayKeysCount: Object.keys(traffic.pageViewDayBuckets || {}).length,
+      visitorHourKeysCount: Object.keys(traffic.visitorHourBuckets || {}).length,
+      visitorDayKeysCount: Object.keys(traffic.visitorDayBuckets || {}).length,
+      errorMinuteKeysCount: Object.keys(traffic.errorMinuteBuckets || {}).length,
+      errorDayKeysCount: Object.keys(traffic.errorDayBuckets || {}).length,
+      recentErrorsCount: recentErrors.length,
+    };
   }
 
   res.status(200).json({
@@ -405,6 +447,7 @@ export default async function handler(req, res) {
     fassService: getFassServiceRuntimeState(),
     metricsStorage: getMetricsStorageMode(),
     updatedAt,
+    debug,
     source: "internal",
   });
 }
