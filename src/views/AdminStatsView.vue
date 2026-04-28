@@ -64,11 +64,45 @@ const safeNumber = (value: unknown) => {
 };
 
 function parseBucketDate(raw: string): Date | null {
-  const localFirst = new Date(raw);
-  if (!Number.isNaN(localFirst.getTime())) return localFirst;
-  const utcFallback = new Date(`${raw}Z`);
-  if (!Number.isNaN(utcFallback.getTime())) return utcFallback;
+  const utcFirst = new Date(`${raw}Z`);
+  if (!Number.isNaN(utcFirst.getTime())) return utcFirst;
+  const localFallback = new Date(raw);
+  if (!Number.isNaN(localFallback.getTime())) return localFallback;
   return null;
+}
+
+function stockholmDayKey(date: Date): string {
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Stockholm",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function stockholmHour(date: Date): number {
+  const h = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Stockholm",
+    hour: "2-digit",
+    hour12: false,
+  }).format(date);
+  return Number(h);
+}
+
+function stockholmMonth(date: Date): number {
+  const m = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Stockholm",
+    month: "2-digit",
+  }).format(date);
+  return Number(m) - 1;
+}
+
+function stockholmYear(date: Date): number {
+  const y = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Stockholm",
+    year: "numeric",
+  }).format(date);
+  return Number(y);
 }
 
 function ymd(date: Date): string {
@@ -77,13 +111,15 @@ function ymd(date: Date): string {
 
 function buildDayByHour(source: Record<string, number>) {
   const now = new Date();
+  const todayInStockholm = stockholmDayKey(now);
   const labels = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}:00`);
   const values = Array.from({ length: 24 }, () => 0);
   for (const [minuteKey, count] of Object.entries(source || {})) {
     const d = parseBucketDate(`${minuteKey}:00`);
     if (!d) continue;
-    if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) {
-      values[d.getHours()] += safeNumber(count);
+    if (stockholmDayKey(d) === todayInStockholm) {
+      const h = stockholmHour(d);
+      if (Number.isFinite(h) && h >= 0 && h <= 23) values[h] += safeNumber(count);
     }
   }
   return { labels, values };
@@ -123,13 +159,16 @@ function buildMonthByWeek(source: Record<string, number>) {
 
 function buildYearByMonth(source: Record<string, number>) {
   const now = new Date();
-  const year = now.getFullYear();
+  const year = stockholmYear(now);
   const labels = ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"];
   const values = Array.from({ length: 12 }, () => 0);
   for (const [dayKey, count] of Object.entries(source || {})) {
     const d = parseBucketDate(`${dayKey}T00:00:00`);
     if (!d) continue;
-    if (d.getFullYear() === year) values[d.getMonth()] += safeNumber(count);
+    if (stockholmYear(d) === year) {
+      const m = stockholmMonth(d);
+      if (m >= 0 && m <= 11) values[m] += safeNumber(count);
+    }
   }
   return { labels, values };
 }
@@ -230,26 +269,26 @@ watch(() => [props.isLoggedIn, props.currentUsername], async () => {
 
       <h2 class="section-title">Diagram (anrop)</h2>
       <div class="charts-grid">
-        <article class="chart-card"><h3>Dag</h3><div class="bars"><div v-for="(v, i) in reqDay.values" :key="`rd-${i}`" class="bar-col"><div class="bar" :style="{ height: barHeightPercent(v, chartMax(reqDay.values)) }" /><span class="bar-label">{{ reqDay.labels[i] }}</span></div></div></article>
-        <article class="chart-card"><h3>Vecka</h3><div class="bars"><div v-for="(v, i) in reqWeek.values" :key="`rw-${i}`" class="bar-col"><div class="bar" :style="{ height: barHeightPercent(v, chartMax(reqWeek.values)) }" /><span class="bar-label">{{ reqWeek.labels[i] }}</span></div></div></article>
-        <article class="chart-card"><h3>Månad</h3><div class="bars"><div v-for="(v, i) in reqMonth.values" :key="`rm-${i}`" class="bar-col"><div class="bar" :style="{ height: barHeightPercent(v, chartMax(reqMonth.values)) }" /><span class="bar-label">{{ reqMonth.labels[i] }}</span></div></div></article>
-        <article class="chart-card"><h3>År</h3><div class="bars"><div v-for="(v, i) in reqYear.values" :key="`ry-${i}`" class="bar-col"><div class="bar" :style="{ height: barHeightPercent(v, chartMax(reqYear.values)) }" /><span class="bar-label">{{ reqYear.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>Dag</h3><div class="bars"><div v-for="(v, i) in reqDay.values" :key="`rd-${i}`" class="bar-col"><div class="bar" :title="`${reqDay.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(reqDay.values)) }" /><span class="bar-label">{{ reqDay.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>Vecka</h3><div class="bars"><div v-for="(v, i) in reqWeek.values" :key="`rw-${i}`" class="bar-col"><div class="bar" :title="`${reqWeek.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(reqWeek.values)) }" /><span class="bar-label">{{ reqWeek.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>Månad</h3><div class="bars"><div v-for="(v, i) in reqMonth.values" :key="`rm-${i}`" class="bar-col"><div class="bar" :title="`${reqMonth.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(reqMonth.values)) }" /><span class="bar-label">{{ reqMonth.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>År</h3><div class="bars"><div v-for="(v, i) in reqYear.values" :key="`ry-${i}`" class="bar-col"><div class="bar" :title="`${reqYear.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(reqYear.values)) }" /><span class="bar-label">{{ reqYear.labels[i] }}</span></div></div></article>
       </div>
 
       <h2 class="section-title">Diagram (besökare)</h2>
       <div class="charts-grid">
-        <article class="chart-card"><h3>Dag</h3><div class="bars"><div v-for="(v, i) in visitorsDay.values" :key="`vd-${i}`" class="bar-col"><div class="bar" :style="{ height: barHeightPercent(v, chartMax(visitorsDay.values)) }" /><span class="bar-label">{{ visitorsDay.labels[i] }}</span></div></div></article>
-        <article class="chart-card"><h3>Vecka</h3><div class="bars"><div v-for="(v, i) in visitorsWeek.values" :key="`vw-${i}`" class="bar-col"><div class="bar" :style="{ height: barHeightPercent(v, chartMax(visitorsWeek.values)) }" /><span class="bar-label">{{ visitorsWeek.labels[i] }}</span></div></div></article>
-        <article class="chart-card"><h3>Månad</h3><div class="bars"><div v-for="(v, i) in visitorsMonth.values" :key="`vm-${i}`" class="bar-col"><div class="bar" :style="{ height: barHeightPercent(v, chartMax(visitorsMonth.values)) }" /><span class="bar-label">{{ visitorsMonth.labels[i] }}</span></div></div></article>
-        <article class="chart-card"><h3>År</h3><div class="bars"><div v-for="(v, i) in visitorsYear.values" :key="`vy-${i}`" class="bar-col"><div class="bar" :style="{ height: barHeightPercent(v, chartMax(visitorsYear.values)) }" /><span class="bar-label">{{ visitorsYear.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>Dag</h3><div class="bars"><div v-for="(v, i) in visitorsDay.values" :key="`vd-${i}`" class="bar-col"><div class="bar" :title="`${visitorsDay.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(visitorsDay.values)) }" /><span class="bar-label">{{ visitorsDay.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>Vecka</h3><div class="bars"><div v-for="(v, i) in visitorsWeek.values" :key="`vw-${i}`" class="bar-col"><div class="bar" :title="`${visitorsWeek.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(visitorsWeek.values)) }" /><span class="bar-label">{{ visitorsWeek.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>Månad</h3><div class="bars"><div v-for="(v, i) in visitorsMonth.values" :key="`vm-${i}`" class="bar-col"><div class="bar" :title="`${visitorsMonth.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(visitorsMonth.values)) }" /><span class="bar-label">{{ visitorsMonth.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>År</h3><div class="bars"><div v-for="(v, i) in visitorsYear.values" :key="`vy-${i}`" class="bar-col"><div class="bar" :title="`${visitorsYear.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(visitorsYear.values)) }" /><span class="bar-label">{{ visitorsYear.labels[i] }}</span></div></div></article>
       </div>
 
       <h2 class="section-title">Diagram (fel)</h2>
       <div class="charts-grid">
-        <article class="chart-card"><h3>Dag</h3><div class="bars"><div v-for="(v, i) in errorsDay.values" :key="`ed-${i}`" class="bar-col"><div class="bar" :style="{ height: barHeightPercent(v, chartMax(errorsDay.values)) }" /><span class="bar-label">{{ errorsDay.labels[i] }}</span></div></div></article>
-        <article class="chart-card"><h3>Vecka</h3><div class="bars"><div v-for="(v, i) in errorsWeek.values" :key="`ew-${i}`" class="bar-col"><div class="bar" :style="{ height: barHeightPercent(v, chartMax(errorsWeek.values)) }" /><span class="bar-label">{{ errorsWeek.labels[i] }}</span></div></div></article>
-        <article class="chart-card"><h3>Månad</h3><div class="bars"><div v-for="(v, i) in errorsMonth.values" :key="`em-${i}`" class="bar-col"><div class="bar" :style="{ height: barHeightPercent(v, chartMax(errorsMonth.values)) }" /><span class="bar-label">{{ errorsMonth.labels[i] }}</span></div></div></article>
-        <article class="chart-card"><h3>År</h3><div class="bars"><div v-for="(v, i) in errorsYear.values" :key="`ey-${i}`" class="bar-col"><div class="bar" :style="{ height: barHeightPercent(v, chartMax(errorsYear.values)) }" /><span class="bar-label">{{ errorsYear.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>Dag</h3><div class="bars"><div v-for="(v, i) in errorsDay.values" :key="`ed-${i}`" class="bar-col"><div class="bar" :title="`${errorsDay.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(errorsDay.values)) }" /><span class="bar-label">{{ errorsDay.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>Vecka</h3><div class="bars"><div v-for="(v, i) in errorsWeek.values" :key="`ew-${i}`" class="bar-col"><div class="bar" :title="`${errorsWeek.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(errorsWeek.values)) }" /><span class="bar-label">{{ errorsWeek.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>Månad</h3><div class="bars"><div v-for="(v, i) in errorsMonth.values" :key="`em-${i}`" class="bar-col"><div class="bar" :title="`${errorsMonth.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(errorsMonth.values)) }" /><span class="bar-label">{{ errorsMonth.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>År</h3><div class="bars"><div v-for="(v, i) in errorsYear.values" :key="`ey-${i}`" class="bar-col"><div class="bar" :title="`${errorsYear.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(errorsYear.values)) }" /><span class="bar-label">{{ errorsYear.labels[i] }}</span></div></div></article>
       </div>
 
       <div class="toolbar">

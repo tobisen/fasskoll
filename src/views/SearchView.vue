@@ -16,7 +16,7 @@ const props = withDefaults(defineProps<{ isLoggedIn?: boolean; currentUsername?:
 });
 
 const DEFAULT_PACKAGE_ID = "";
-const DEFAULT_ZIP_CODE = "75318";
+const DEFAULT_ZIP_CODE = "";
 
 const route = useRoute();
 const zipCode = ref(DEFAULT_ZIP_CODE);
@@ -61,6 +61,15 @@ const lastStockRequestAt = ref(0);
 const lastStockRequestKey = ref("");
 const lastMedicineRequestAt = ref(0);
 const lastMedicineRequestKey = ref("");
+
+function zipCodeNormalized(): string {
+  return zipCode.value.trim();
+}
+
+function zipCodeIsValid(): boolean {
+  const zip = zipCodeNormalized();
+  return /^\d{5}$/.test(zip) && Number(zip) >= 10000 && Number(zip) <= 99999;
+}
 
 const STOCK_GROUP_LABELS: Record<string, string> = {
   IN_STOCK: "I lager",
@@ -446,6 +455,11 @@ async function loadFormStrengthOptions(sourcePackageIds: string[]) {
 }
 
 async function handleMedicineSearch() {
+  if (!zipCodeIsValid()) {
+    setUiError("Ange ett giltigt postnummer med 5 siffror (10000-99999).");
+    return;
+  }
+
   const normalizedQuery = medicineQuery.value.trim().toLowerCase();
   const medicineRequestKey = normalizedQuery;
   const guestAllowedMedicine = PUBLIC_MEDICINES.has(normalizedQuery);
@@ -547,8 +561,8 @@ async function checkStock() {
     return;
   }
 
-  if (!zipCode.value.trim()) {
-    setUiError("Ange postnummer.");
+  if (!zipCodeIsValid()) {
+    setUiError("Ange ett giltigt postnummer med 5 siffror (10000-99999).");
     return;
   }
 
@@ -568,7 +582,7 @@ async function checkStock() {
       ];
 
   const stockRequestKey = JSON.stringify({
-    zip: zipCode.value.trim(),
+    zip: zipCodeNormalized(),
     radius: selectedRadiusKm.value,
     variants: optionsToCheck.map((option) => option.packageId),
   });
@@ -594,7 +608,7 @@ async function checkStock() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        zipCode: zipCode.value.trim(),
+        zipCode: zipCodeNormalized(),
         variants,
       }),
       cache: "no-store",
@@ -733,7 +747,7 @@ watch(selectedRadiusKm, () => {
             placeholder="t.ex. Estradot"
             @keyup.enter="handleMedicineSearch"
           />
-          <button type="button" :disabled="loadingMedicineSearch || loadingOptions" @click="handleMedicineSearch">
+          <button type="button" :disabled="loadingMedicineSearch || loadingOptions || !zipCodeIsValid()" @click="handleMedicineSearch">
             {{ loadingMedicineSearch ? "Söker..." : "Sök läkemedel" }}
           </button>
         </div>
@@ -746,8 +760,11 @@ watch(selectedRadiusKm, () => {
         Vald träff: <strong>{{ selectedMedicineLabel }}</strong>
       </p>
 
-      <label for="zip">Postnummer</label>
-      <input id="zip" v-model="zipCode" type="text" placeholder="t.ex. 11122" />
+      <label for="zip">Postnummer (ex 12345)</label>
+      <input id="zip" v-model="zipCode" type="text" inputmode="numeric" maxlength="5" placeholder="ex 12345" />
+      <p v-if="zipCodeNormalized().length > 0 && !zipCodeIsValid()" class="warn-text">
+        Ange ett giltigt postnummer med 5 siffror mellan 10000 och 99999.
+      </p>
 
       <label for="radius">Sökradie</label>
       <select id="radius" v-model.number="selectedRadiusKm">
@@ -757,12 +774,6 @@ watch(selectedRadiusKm, () => {
         <option :value="40">40 km</option>
         <option :value="50">50 km</option>
       </select>
-
-      <div>
-        <button type="button" :disabled="loading" @click="checkStock">
-          {{ loading ? "Laddar..." : "Sök lagerstatus" }}
-        </button>
-      </div>
 
       <p v-if="error" class="error-text">{{ error }}</p>
       <p v-if="!error && infoMessage" class="warn-text">{{ infoMessage }}</p>
@@ -820,7 +831,7 @@ watch(selectedRadiusKm, () => {
     <p v-else-if="!loading && hasSearched && rows.length === 0" class="info">
       Inga träffar för vald sökning (eller tillfälligt tomt svar från Fass).
     </p>
-    <p v-else-if="!loading" class="info">Ange postnummer och klicka på Sök lagerstatus.</p>
+    <p v-else-if="!loading" class="info">Ange postnummer och välj läkemedel för att starta sökningen.</p>
   </section>
 </template>
 

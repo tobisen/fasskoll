@@ -6,9 +6,11 @@ Tjänsten är en intern hobbylösning och är tydligt markerad som **ej officiel
 
 ## Funktioner
 - Publika snabbval: Estradot, Lenzetto, Divigel, Estrogel, Utrogestan
+- Postnummer-validering i UI: endast 5 siffror mellan `10000-99999`
 - Lagerstatus per apotek med styrka (t.ex. `25 mikrog/24 timmar`), förpackningstyp/storlek (t.ex. `24 styck, Påse`), adress och status
 - Statusfilter (Alla / I lager / Ej i lager / Kontakta apotek)
 - Inloggat läge för fri läkemedelssökning
+- Sökning startar vid aktivt val/sökning av läkemedel (ingen separat "Sök lagerstatus"-knapp)
 - Adminvyer:
   - `Trafik & drift` (endpointtrafik, upstreamfel, service-läge)
   - `Statistik` (diagram för anrop, besökare och fel: dag/vecka/månad/år)

@@ -31,7 +31,8 @@ Tjänsten är uttryckligen markerad som **ej officiell**.
 
 ### Publika funktioner
 - Snabbval för 5 läkemedel: Estradot, Lenzetto, Divigel, Estrogel, Utrogestan
-- Sökning startar på explicit användarinteraktion (klick/knapp)
+- Sökning startar på explicit användarinteraktion (läkemedelsval/sökning), ingen polling
+- UI-validering av postnummer: exakt 5 siffror i intervallet 10000-99999, med spärr av sökknappar vid ogiltigt värde
 - Lagerstatuslista per apotek med:
   - apotek
   - styrka (läkemedelsstyrka, ej förpackningsantal)
