@@ -114,9 +114,9 @@ function pickStringCandidate(value: unknown): string | null {
 
 function packageIdFromSearchItem(item: SearchDrugItem): string | null {
   const direct = [
+    item.nplPackId,
     item.packageId,
     item.id,
-    item.nplPackId,
     item.nplId,
   ].find((candidate) => typeof candidate === "string" && candidate.trim().length > 0);
 
@@ -132,7 +132,7 @@ function packageIdFromSearchItem(item: SearchDrugItem): string | null {
     }
     const nestedObj = nested as Record<string, unknown>;
     const nestedId = pickStringCandidate(
-      nestedObj.packageId ?? nestedObj.id ?? nestedObj.nplPackId ?? nestedObj.nplId,
+      nestedObj.nplPackId ?? nestedObj.packageId ?? nestedObj.id ?? nestedObj.nplId,
     );
     if (nestedId) {
       return nestedId;
@@ -324,12 +324,18 @@ function applyRadiusFilter(
 }
 
 function toFormStrengthOption(pkgObj: Record<string, unknown>, fallbackId: string): FormStrengthOption {
-  const packId =
+  const packIdCandidate =
     (typeof pkgObj.nplPackId === "string" && pkgObj.nplPackId.trim()) ||
-    (typeof pkgObj.id === "string" && pkgObj.id.trim()) ||
     (typeof pkgObj.packageId === "string" && pkgObj.packageId.trim()) ||
-    (typeof pkgObj.nplId === "string" && pkgObj.nplId.trim()) ||
-    fallbackId;
+    (typeof pkgObj.id === "string" && pkgObj.id.trim()) ||
+    "";
+  const fallbackCandidate = fallbackId.trim();
+  const packId = /^\d{6,20}$/.test(packIdCandidate)
+    ? packIdCandidate
+    : (/^\d{6,20}$/.test(fallbackCandidate) ? fallbackCandidate : "");
+  if (!packId) {
+    throw new Error("Kunde inte hitta giltigt package-id för en eller flera styrkor.");
+  }
 
   const form =
     (typeof pkgObj.doseForm === "string" && pkgObj.doseForm.trim()) ||
@@ -370,7 +376,11 @@ async function loadFormStrengthOptions(sourcePackageIds: string[]) {
     for (const sourceId of sourceIds) {
       const interchangeable = await getInterchangeablePackages(sourceId);
       for (const pkg of interchangeable) {
-        resolved.push(toFormStrengthOption(pkg as Record<string, unknown>, sourceId));
+        try {
+          resolved.push(toFormStrengthOption(pkg as Record<string, unknown>, sourceId));
+        } catch {
+          // Ignore malformed package rows to avoid breaking the full strength list.
+        }
       }
     }
 
@@ -610,8 +620,10 @@ async function checkStock() {
     unavailableStrengths.value = failedStrengths;
 
     if (builtRows.length > 0) {
-      infoMessage.value =
-        "Fass svarade inte fullt ut. Visar fallbackdata från reservflödet.";
+      if (props.isLoggedIn) {
+        infoMessage.value =
+          "Fass svarade inte fullt ut. Visar fallbackdata från reservflödet.";
+      }
     } else {
       const details =
         primaryError instanceof Error ? primaryError.message : "Okänt fel från Fass";
