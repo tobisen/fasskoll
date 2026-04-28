@@ -49,6 +49,7 @@ const buckets = ref<Buckets>({
 });
 
 const selectedPeriodStats = computed(() => periodStats.value[selectedPeriod.value]);
+const dayPeriodStats = computed(() => periodStats.value.day);
 const chartMax = (values: number[]) => Math.max(1, ...values);
 const barHeightPercent = (value: number, max: number) => {
   if (!Number.isFinite(value) || value <= 0) return "0%";
@@ -209,7 +210,9 @@ const reqYear = computed(() => buildYearByMonth(buckets.value.day));
 const visitorsDay = computed(() => {
   const base = buildDayByHour(buckets.value.visitorHours);
   const today = ymd(new Date());
-  const todayVisitorsTotal = safeNumber((buckets.value.visitorDays as Record<string, unknown>)[today]);
+  const visitorsFromDayBucket = safeNumber((buckets.value.visitorDays as Record<string, unknown>)[today]);
+  const visitorsFromPeriodDay = safeNumber(dayPeriodStats.value.uniqueVisitors);
+  const todayVisitorsTotal = Math.max(visitorsFromDayBucket, visitorsFromPeriodDay);
   const knownVisitors = base.values.reduce((sum, value) => sum + safeNumber(value), 0);
 
   if (todayVisitorsTotal <= knownVisitors) {
@@ -228,7 +231,26 @@ const visitorsWeek = computed(() => buildWeekByDay(buckets.value.visitorDays));
 const visitorsMonth = computed(() => buildMonthByWeek(buckets.value.visitorDays));
 const visitorsYear = computed(() => buildYearByMonth(buckets.value.visitorDays));
 
-const errorsDay = computed(() => buildDayByHour(buckets.value.errorMinutes));
+const errorsDay = computed(() => {
+  const base = buildDayByHour(buckets.value.errorMinutes);
+  const today = ymd(new Date());
+  const errorsFromDayBucket = safeNumber((buckets.value.errorsByDay as Record<string, unknown>)[today]);
+  const errorsFromPeriodDay = safeNumber(dayPeriodStats.value.errors);
+  const todayErrorsTotal = Math.max(errorsFromDayBucket, errorsFromPeriodDay);
+  const knownErrors = base.values.reduce((sum, value) => sum + safeNumber(value), 0);
+
+  if (todayErrorsTotal <= knownErrors) {
+    return base;
+  }
+
+  const missing = todayErrorsTotal - knownErrors;
+  const weights = reqDay.value.values.map((v) => safeNumber(v));
+  const distributed = distributeByWeights(missing, weights);
+  return {
+    labels: base.labels,
+    values: base.values.map((v, i) => safeNumber(v) + safeNumber(distributed[i])),
+  };
+});
 const errorsWeek = computed(() => buildWeekByDay(buckets.value.errorsByDay));
 const errorsMonth = computed(() => buildMonthByWeek(buckets.value.errorsByDay));
 const errorsYear = computed(() => buildYearByMonth(buckets.value.errorsByDay));
