@@ -202,6 +202,23 @@ function buildYearByMonth(source: Record<string, number>) {
   return { labels, values };
 }
 
+function withMissingDistributed(
+  base: { labels: string[]; values: number[] },
+  expectedTotal: number,
+  weights: number[],
+) {
+  const known = base.values.reduce((sum, value) => sum + safeNumber(value), 0);
+  if (expectedTotal <= known) {
+    return base;
+  }
+  const missing = expectedTotal - known;
+  const distributed = distributeByWeights(missing, weights);
+  return {
+    labels: base.labels,
+    values: base.values.map((v, i) => safeNumber(v) + safeNumber(distributed[i])),
+  };
+}
+
 const reqDay = computed(() => buildDayByHour(buckets.value.minute));
 const reqWeek = computed(() => buildWeekByDay(buckets.value.day));
 const reqMonth = computed(() => buildMonthByWeek(buckets.value.day));
@@ -254,6 +271,54 @@ const errorsDay = computed(() => {
 const errorsWeek = computed(() => buildWeekByDay(buckets.value.errorsByDay));
 const errorsMonth = computed(() => buildMonthByWeek(buckets.value.errorsByDay));
 const errorsYear = computed(() => buildYearByMonth(buckets.value.errorsByDay));
+
+const visitorsWeekFinal = computed(() =>
+  withMissingDistributed(
+    visitorsWeek.value,
+    safeNumber(periodStats.value.week.uniqueVisitors),
+    reqWeek.value.values.map((v) => safeNumber(v)),
+  ),
+);
+
+const visitorsMonthFinal = computed(() =>
+  withMissingDistributed(
+    visitorsMonth.value,
+    safeNumber(periodStats.value.month.uniqueVisitors),
+    reqMonth.value.values.map((v) => safeNumber(v)),
+  ),
+);
+
+const visitorsYearFinal = computed(() =>
+  withMissingDistributed(
+    visitorsYear.value,
+    safeNumber(periodStats.value.year.uniqueVisitors),
+    reqYear.value.values.map((v) => safeNumber(v)),
+  ),
+);
+
+const errorsWeekFinal = computed(() =>
+  withMissingDistributed(
+    errorsWeek.value,
+    safeNumber(periodStats.value.week.errors),
+    reqWeek.value.values.map((v) => safeNumber(v)),
+  ),
+);
+
+const errorsMonthFinal = computed(() =>
+  withMissingDistributed(
+    errorsMonth.value,
+    safeNumber(periodStats.value.month.errors),
+    reqMonth.value.values.map((v) => safeNumber(v)),
+  ),
+);
+
+const errorsYearFinal = computed(() =>
+  withMissingDistributed(
+    errorsYear.value,
+    safeNumber(periodStats.value.year.errors),
+    reqYear.value.values.map((v) => safeNumber(v)),
+  ),
+);
 
 async function loadSummary() {
   if (!isAdmin.value) return;
@@ -345,17 +410,17 @@ watch(() => [props.isLoggedIn, props.currentUsername], async () => {
       <h2 class="section-title">Diagram (besökare)</h2>
       <div class="charts-grid">
         <article class="chart-card"><h3>Dag</h3><div class="bars"><div v-for="(v, i) in visitorsDay.values" :key="`vd-${i}`" class="bar-col"><div class="bar" :title="`${visitorsDay.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(visitorsDay.values)) }" /><span class="bar-label">{{ visitorsDay.labels[i] }}</span></div></div></article>
-        <article class="chart-card"><h3>Vecka</h3><div class="bars"><div v-for="(v, i) in visitorsWeek.values" :key="`vw-${i}`" class="bar-col"><div class="bar" :title="`${visitorsWeek.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(visitorsWeek.values)) }" /><span class="bar-label">{{ visitorsWeek.labels[i] }}</span></div></div></article>
-        <article class="chart-card"><h3>Månad</h3><div class="bars"><div v-for="(v, i) in visitorsMonth.values" :key="`vm-${i}`" class="bar-col"><div class="bar" :title="`${visitorsMonth.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(visitorsMonth.values)) }" /><span class="bar-label">{{ visitorsMonth.labels[i] }}</span></div></div></article>
-        <article class="chart-card"><h3>År</h3><div class="bars"><div v-for="(v, i) in visitorsYear.values" :key="`vy-${i}`" class="bar-col"><div class="bar" :title="`${visitorsYear.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(visitorsYear.values)) }" /><span class="bar-label">{{ visitorsYear.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>Vecka</h3><div class="bars"><div v-for="(v, i) in visitorsWeekFinal.values" :key="`vw-${i}`" class="bar-col"><div class="bar" :title="`${visitorsWeekFinal.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(visitorsWeekFinal.values)) }" /><span class="bar-label">{{ visitorsWeekFinal.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>Månad</h3><div class="bars"><div v-for="(v, i) in visitorsMonthFinal.values" :key="`vm-${i}`" class="bar-col"><div class="bar" :title="`${visitorsMonthFinal.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(visitorsMonthFinal.values)) }" /><span class="bar-label">{{ visitorsMonthFinal.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>År</h3><div class="bars"><div v-for="(v, i) in visitorsYearFinal.values" :key="`vy-${i}`" class="bar-col"><div class="bar" :title="`${visitorsYearFinal.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(visitorsYearFinal.values)) }" /><span class="bar-label">{{ visitorsYearFinal.labels[i] }}</span></div></div></article>
       </div>
 
       <h2 class="section-title">Diagram (fel)</h2>
       <div class="charts-grid">
         <article class="chart-card"><h3>Dag</h3><div class="bars"><div v-for="(v, i) in errorsDay.values" :key="`ed-${i}`" class="bar-col"><div class="bar" :title="`${errorsDay.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(errorsDay.values)) }" /><span class="bar-label">{{ errorsDay.labels[i] }}</span></div></div></article>
-        <article class="chart-card"><h3>Vecka</h3><div class="bars"><div v-for="(v, i) in errorsWeek.values" :key="`ew-${i}`" class="bar-col"><div class="bar" :title="`${errorsWeek.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(errorsWeek.values)) }" /><span class="bar-label">{{ errorsWeek.labels[i] }}</span></div></div></article>
-        <article class="chart-card"><h3>Månad</h3><div class="bars"><div v-for="(v, i) in errorsMonth.values" :key="`em-${i}`" class="bar-col"><div class="bar" :title="`${errorsMonth.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(errorsMonth.values)) }" /><span class="bar-label">{{ errorsMonth.labels[i] }}</span></div></div></article>
-        <article class="chart-card"><h3>År</h3><div class="bars"><div v-for="(v, i) in errorsYear.values" :key="`ey-${i}`" class="bar-col"><div class="bar" :title="`${errorsYear.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(errorsYear.values)) }" /><span class="bar-label">{{ errorsYear.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>Vecka</h3><div class="bars"><div v-for="(v, i) in errorsWeekFinal.values" :key="`ew-${i}`" class="bar-col"><div class="bar" :title="`${errorsWeekFinal.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(errorsWeekFinal.values)) }" /><span class="bar-label">{{ errorsWeekFinal.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>Månad</h3><div class="bars"><div v-for="(v, i) in errorsMonthFinal.values" :key="`em-${i}`" class="bar-col"><div class="bar" :title="`${errorsMonthFinal.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(errorsMonthFinal.values)) }" /><span class="bar-label">{{ errorsMonthFinal.labels[i] }}</span></div></div></article>
+        <article class="chart-card"><h3>År</h3><div class="bars"><div v-for="(v, i) in errorsYearFinal.values" :key="`ey-${i}`" class="bar-col"><div class="bar" :title="`${errorsYearFinal.labels[i]}: ${v}`" :style="{ height: barHeightPercent(v, chartMax(errorsYearFinal.values)) }" /><span class="bar-label">{{ errorsYearFinal.labels[i] }}</span></div></div></article>
       </div>
 
       <div class="toolbar">
