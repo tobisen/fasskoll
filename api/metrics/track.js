@@ -1,5 +1,13 @@
 import crypto from "node:crypto";
-import { readMetricsState, writeMetricsState } from "./_store.js";
+import {
+  hasKvMetricsConfig,
+  kvHIncrBy,
+  kvIncrBy,
+  kvSet,
+  kvSAdd,
+  readMetricsState,
+  writeMetricsState,
+} from "./_store.js";
 
 function hashVisitorId(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
@@ -24,6 +32,27 @@ export default async function handler(req, res) {
 
   if (!visitorId) {
     res.status(400).json({ error: "visitorId krävs" });
+    return;
+  }
+
+  if (hasKvMetricsConfig()) {
+    const hashedVisitorId = hashVisitorId(visitorId);
+    const nowDate = new Date();
+    const dKey = dayKey(nowDate);
+    const hKey = hourKey(nowDate);
+
+    await kvIncrBy("pageViews:total", 1);
+    await kvHIncrBy("pageViews:day", dKey, 1);
+    await kvSAdd("visitors:all", hashedVisitorId);
+
+    const addedInDay = await kvSAdd(`visitors:day:${dKey}`, hashedVisitorId);
+    if (addedInDay > 0) {
+      await kvHIncrBy("visitors:day", dKey, 1);
+      await kvHIncrBy("visitors:hour", hKey, 1);
+    }
+
+    await kvSet("updatedAt", new Date().toISOString());
+    res.status(200).json({ ok: true });
     return;
   }
 

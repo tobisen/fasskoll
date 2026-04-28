@@ -3,6 +3,7 @@ import path from "node:path";
 
 const METRICS_FILE = path.join("/tmp", "fasskoll-metrics.json");
 const KV_KEY = process.env.METRICS_KV_KEY || "fasskoll:metrics:v1";
+const ATOMIC_PREFIX = process.env.METRICS_ATOMIC_PREFIX || "fasskoll:metrics:atomic:v1";
 const KV_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || "";
 const KV_TOKEN =
   process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || "";
@@ -63,6 +64,10 @@ function hasKvConfig() {
   return typeof KV_URL === "string" && KV_URL.length > 0 && typeof KV_TOKEN === "string" && KV_TOKEN.length > 0;
 }
 
+export function hasKvMetricsConfig() {
+  return hasKvConfig();
+}
+
 export function getMetricsStorageMode() {
   return hasKvConfig() ? "kv" : "tmp";
 }
@@ -87,6 +92,92 @@ async function runKvCommand(args) {
     throw new Error("KV command returned invalid payload");
   }
   return payload.result;
+}
+
+function atomicKey(suffix) {
+  return `${ATOMIC_PREFIX}:${suffix}`;
+}
+
+export async function kvIncrBy(key, amount = 1) {
+  if (!hasKvConfig()) return 0;
+  const result = await runKvCommand(["INCRBY", atomicKey(key), Math.trunc(amount)]);
+  return typeof result === "number" ? result : Number(result || 0);
+}
+
+export async function kvHIncrBy(key, field, amount = 1) {
+  if (!hasKvConfig()) return 0;
+  const result = await runKvCommand([
+    "HINCRBY",
+    atomicKey(key),
+    String(field),
+    Math.trunc(amount),
+  ]);
+  return typeof result === "number" ? result : Number(result || 0);
+}
+
+export async function kvHSet(key, field, value) {
+  if (!hasKvConfig()) return 0;
+  const result = await runKvCommand([
+    "HSET",
+    atomicKey(key),
+    String(field),
+    String(value),
+  ]);
+  return typeof result === "number" ? result : Number(result || 0);
+}
+
+export async function kvHGetAll(key) {
+  if (!hasKvConfig()) return {};
+  const result = await runKvCommand(["HGETALL", atomicKey(key)]);
+  if (!Array.isArray(result)) return {};
+  const out = {};
+  for (let i = 0; i < result.length; i += 2) {
+    const field = result[i];
+    const value = result[i + 1];
+    if (typeof field === "string" && typeof value === "string") {
+      out[field] = value;
+    }
+  }
+  return out;
+}
+
+export async function kvSet(key, value) {
+  if (!hasKvConfig()) return null;
+  return runKvCommand(["SET", atomicKey(key), String(value)]);
+}
+
+export async function kvGet(key) {
+  if (!hasKvConfig()) return null;
+  return runKvCommand(["GET", atomicKey(key)]);
+}
+
+export async function kvSAdd(key, member) {
+  if (!hasKvConfig()) return 0;
+  const result = await runKvCommand(["SADD", atomicKey(key), String(member)]);
+  return typeof result === "number" ? result : Number(result || 0);
+}
+
+export async function kvSCard(key) {
+  if (!hasKvConfig()) return 0;
+  const result = await runKvCommand(["SCARD", atomicKey(key)]);
+  return typeof result === "number" ? result : Number(result || 0);
+}
+
+export async function kvLPush(key, value) {
+  if (!hasKvConfig()) return 0;
+  const result = await runKvCommand(["LPUSH", atomicKey(key), String(value)]);
+  return typeof result === "number" ? result : Number(result || 0);
+}
+
+export async function kvLTrim(key, start, stop) {
+  if (!hasKvConfig()) return null;
+  return runKvCommand(["LTRIM", atomicKey(key), Math.trunc(start), Math.trunc(stop)]);
+}
+
+export async function kvLRange(key, start, stop) {
+  if (!hasKvConfig()) return [];
+  const result = await runKvCommand(["LRANGE", atomicKey(key), Math.trunc(start), Math.trunc(stop)]);
+  return Array.isArray(result) ? result : [];
 }
 
 async function readStateFromKv() {

@@ -1,4 +1,13 @@
-import { readMetricsState, writeMetricsState } from "./_store.js";
+import {
+  hasKvMetricsConfig,
+  kvHIncrBy,
+  kvIncrBy,
+  kvLPush,
+  kvLTrim,
+  kvSet,
+  readMetricsState,
+  writeMetricsState,
+} from "./_store.js";
 
 const MAX_RECENT_ERRORS = 80;
 const MINUTE_BUCKET_RETENTION_MINUTES = 24 * 60;
@@ -74,6 +83,64 @@ export async function recordTrafficEvent({
   cacheHits = 0,
 }) {
   try {
+    if (hasKvMetricsConfig()) {
+      const routeKey = `route:${route}`;
+      const now = new Date();
+      const mKey = minuteKey(now);
+      const dKey = dayKey(now);
+      const safeUpstreamCalls = Number.isFinite(upstreamCalls) ? Math.max(0, upstreamCalls) : 0;
+      const safeCacheHits = Number.isFinite(cacheHits) ? Math.max(0, cacheHits) : 0;
+
+      await kvIncrBy("traffic:totalRequests", 1);
+      await kvHIncrBy(routeKey, "requests", 1);
+      if (safeUpstreamCalls > 0) {
+        await kvHIncrBy(routeKey, "upstreamCalls", safeUpstreamCalls);
+      }
+      if (safeCacheHits > 0) {
+        await kvHIncrBy(routeKey, "cacheHits", safeCacheHits);
+      }
+
+      if (category === "rate_limited") {
+        await kvHIncrBy(routeKey, "rateLimited", 1);
+      } else if (category === "kill_switch") {
+        await kvHIncrBy(routeKey, "killSwitch", 1);
+      } else if (category === "circuit_open") {
+        await kvHIncrBy(routeKey, "circuitOpen", 1);
+      }
+
+      if (success) {
+        await kvHIncrBy(routeKey, "success", 1);
+      } else {
+        await kvHIncrBy(routeKey, "failed", 1);
+        if (typeof status === "number") {
+          if (status === 429) {
+            await kvHIncrBy(routeKey, "upstream429", 1);
+          } else if (status >= 500 && status <= 599) {
+            await kvHIncrBy(routeKey, "upstream5xx", 1);
+          } else if (status >= 400 && status <= 499) {
+            await kvHIncrBy(routeKey, "upstream4xx", 1);
+          }
+        }
+
+        const errorItem = {
+          timestamp: new Date().toISOString(),
+          route,
+          status: typeof status === "number" ? status : null,
+          category,
+          message: sanitizeErrorMessage(message),
+        };
+        await kvLPush("errors:recent", JSON.stringify(errorItem));
+        await kvLTrim("errors:recent", 0, MAX_RECENT_ERRORS - 1);
+        await kvHIncrBy("errors:minute", mKey, 1);
+        await kvHIncrBy("errors:day", dKey, 1);
+      }
+
+      await kvHIncrBy("traffic:minute", mKey, 1);
+      await kvHIncrBy("traffic:day", dKey, 1);
+      await kvSet("updatedAt", new Date().toISOString());
+      return;
+    }
+
     const state = await readMetricsState();
 
     state.traffic.totalRequests += 1;

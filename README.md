@@ -9,7 +9,10 @@ Tjänsten är en intern hobbylösning och är tydligt markerad som **ej officiel
 - Lagerstatus per apotek med styrka (t.ex. `25 mikrog/24 timmar`), förpackningstyp/storlek (t.ex. `24 styck, Påse`), adress och status
 - Statusfilter (Alla / I lager / Ej i lager / Kontakta apotek)
 - Inloggat läge för fri läkemedelssökning
-- Adminvyer för drift, trafik, fel, toppar och hardening-status
+- Adminvyer:
+  - `Trafik & drift` (endpointtrafik, upstreamfel, service-läge)
+  - `Statistik` (diagram för anrop, besökare och fel: dag/vecka/månad/år)
+  - `Blockeringsskydd` (hardening-checklista)
 
 ## Arkitektur
 
