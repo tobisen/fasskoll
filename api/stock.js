@@ -6,6 +6,7 @@ import {
 } from "./services/fassService.js";
 import { parseSession } from "./auth/_session.js";
 import { enforceRateLimit, getClientIp } from "./security/rateLimit.js";
+import { getOrSetGuestId } from "./security/guestIdentity.js";
 import { enforceKillSwitch } from "./security/killSwitch.js";
 import { recordTrafficEvent } from "./metrics/collector.js";
 
@@ -14,6 +15,22 @@ const STOCK_CACHE_TTL_MS =
 const ZIP_CONTEXT_CACHE_TTL_MS =
   Number(process.env.FASS_ZIP_CACHE_TTL_MS) || STOCK_CACHE_TTL_MS;
 const MAX_VARIANTS = 25;
+const GUEST_STOCK_RATE_LIMIT_PER_MIN = Math.max(
+  1,
+  Math.min(Number(process.env.FASS_GUEST_STOCK_RATE_LIMIT_PER_MIN) || 3, 30),
+);
+const GUEST_STOCK_BLOCK_MINUTES = Math.max(
+  1,
+  Math.min(Number(process.env.FASS_GUEST_STOCK_BLOCK_MINUTES) || 20, 120),
+);
+const AUTH_STOCK_RATE_LIMIT_PER_MIN = Math.max(
+  5,
+  Math.min(Number(process.env.FASS_AUTH_STOCK_RATE_LIMIT_PER_MIN) || 40, 240),
+);
+const AUTH_STOCK_BLOCK_MINUTES = Math.max(
+  1,
+  Math.min(Number(process.env.FASS_AUTH_STOCK_BLOCK_MINUTES) || 2, 60),
+);
 const SHARED_CACHE_PREFIX = process.env.FASS_SHARED_CACHE_PREFIX || "fasskoll:stockcache:v1";
 const KV_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || "";
 const KV_TOKEN =
@@ -304,14 +321,19 @@ export default async function handler(req, res) {
   }
 
   const session = parseSession(req);
+  const ip = getClientIp(req);
+  const userAgent =
+    typeof req.headers?.["user-agent"] === "string"
+      ? req.headers["user-agent"].slice(0, 120)
+      : "unknown";
   if (!session) {
-    const ip = getClientIp(req);
+    const guestId = getOrSetGuestId(req, res);
     const limited = enforceRateLimit(req, res, {
       scope: "guest-stock",
-      key: ip,
-      maxRequests: 3,
+      key: `${guestId}|${ip}|${userAgent}`,
+      maxRequests: GUEST_STOCK_RATE_LIMIT_PER_MIN,
       windowMs: 60_000,
-      blockMs: 20 * 60_000,
+      blockMs: GUEST_STOCK_BLOCK_MINUTES * 60_000,
     });
     if (!limited.allowed) {
       res.status(429).json({
@@ -322,6 +344,27 @@ export default async function handler(req, res) {
         status: 429,
         category: "rate_limited",
         message: "Guest stock rate limit triggered",
+        success: false,
+      });
+      return;
+    }
+  } else {
+    const limited = enforceRateLimit(req, res, {
+      scope: "auth-stock",
+      key: `${session.username}|${session.sessionNonce}`,
+      maxRequests: AUTH_STOCK_RATE_LIMIT_PER_MIN,
+      windowMs: 60_000,
+      blockMs: AUTH_STOCK_BLOCK_MINUTES * 60_000,
+    });
+    if (!limited.allowed) {
+      res.status(429).json({
+        error: "För många lagerförfrågningar för inloggad användare. Försök igen om en stund.",
+      });
+      await recordTrafficEvent({
+        route: "stock",
+        status: 429,
+        category: "rate_limited",
+        message: "Authenticated stock rate limit triggered",
         success: false,
       });
       return;

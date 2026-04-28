@@ -157,8 +157,11 @@ export function parseSession(req) {
     if (typeof parsed.username !== "string" || typeof parsed.exp !== "number") {
       return null;
     }
+    if (typeof parsed.nonce !== "string" || parsed.nonce.length < 16) {
+      return null;
+    }
     if (Date.now() > parsed.exp) return null;
-    return { username: parsed.username };
+    return { username: parsed.username, sessionNonce: parsed.nonce };
   } catch {
     return null;
   }

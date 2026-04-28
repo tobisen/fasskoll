@@ -127,6 +127,34 @@ const routeRows = computed(() => [
 ]);
 
 const errorCount = computed(() => traffic.value.recentErrors.length);
+const upstreamStatusRows = computed(() => {
+  const buckets = new Map<number, number>();
+  for (const item of traffic.value.recentErrors) {
+    const category = item.category;
+    const isUpstreamLike =
+      category === "upstream_error" ||
+      category === "proxy_error" ||
+      category === "circuit_open";
+    if (!isUpstreamLike) continue;
+    if (typeof item.status !== "number") continue;
+    buckets.set(item.status, (buckets.get(item.status) || 0) + 1);
+  }
+
+  return Array.from(buckets.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([status, count]) => ({
+      status,
+      count,
+      family:
+        status === 429
+          ? "429"
+          : status >= 500
+            ? "5xx"
+            : status >= 400
+              ? "4xx"
+              : "Övrigt",
+    }));
+});
 const rateLimitedLast15Min = computed(() => {
   const now = Date.now();
   const windowMs = 15 * 60 * 1000;
@@ -152,6 +180,19 @@ function formatDate(value: string | null) {
 
 function safeNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function renderErrorMessage(item: {
+  status: number | null;
+  message: string;
+}) {
+  if (
+    item.message === "Upstream returned error status" &&
+    typeof item.status === "number"
+  ) {
+    return `${item.message} (${item.status})`;
+  }
+  return item.message;
 }
 
 async function loadSummary() {
@@ -343,9 +384,6 @@ watch(
               <th>Circuit open</th>
               <th>Mot Fass</th>
               <th>Från cache</th>
-              <th>Upstream 429</th>
-              <th>Upstream 4xx</th>
-              <th>Upstream 5xx</th>
             </tr>
           </thead>
           <tbody>
@@ -359,9 +397,29 @@ watch(
               <td>{{ row.circuitOpen }}</td>
               <td>{{ row.upstreamCalls }}</td>
               <td>{{ row.cacheHits }}</td>
-              <td>{{ row.upstream429 }}</td>
-              <td>{{ row.upstream4xx }}</td>
-              <td>{{ row.upstream5xx }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 class="section-title">Upstream-fel (statuskoder)</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Statuskod</th>
+              <th>Familj</th>
+              <th>Antal (senaste fel)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in upstreamStatusRows" :key="`upstream-${row.status}`">
+              <td>{{ row.status }}</td>
+              <td>{{ row.family }}</td>
+              <td>{{ row.count }}</td>
+            </tr>
+            <tr v-if="upstreamStatusRows.length === 0">
+              <td colspan="3">Inga upstream-fel loggade.</td>
             </tr>
           </tbody>
         </table>
@@ -434,7 +492,7 @@ watch(
               <div class="small">
                 {{ item.category }}<span v-if="item.status"> ({{ item.status }})</span>
               </div>
-              <div>{{ item.message }}</div>
+              <div>{{ renderErrorMessage(item) }}</div>
             </li>
             <li v-if="traffic.recentErrors.length === 0">Inga fel loggade.</li>
           </ul>
