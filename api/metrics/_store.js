@@ -129,12 +129,17 @@ export async function kvHSet(key, field, value) {
 export async function kvHGetAll(key) {
   if (!hasKvConfig()) return {};
   const result = await runKvCommand(["HGETALL", atomicKey(key)]);
+  // Upstash can return hash data either as object ({ field: value })
+  // or as flat array ([field1, value1, field2, value2, ...]).
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    return result;
+  }
   if (!Array.isArray(result)) return {};
   const out = {};
   for (let i = 0; i < result.length; i += 2) {
     const field = result[i];
     const value = result[i + 1];
-    if (typeof field === "string" && typeof value === "string") {
+    if (typeof field === "string" && (typeof value === "string" || typeof value === "number")) {
       out[field] = value;
     }
   }
