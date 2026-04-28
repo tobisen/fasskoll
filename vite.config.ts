@@ -1,6 +1,8 @@
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import crypto from "node:crypto";
+// @ts-expect-error Local Vercel-style handler is plain JS without type declarations.
+import stockHandler from "./api/stock.js";
 
 const DEV_SESSION_COOKIE_NAME = "fasskoll_session";
 const DEV_DEFAULT_USERS: Record<string, string> = {
@@ -169,6 +171,16 @@ function readJsonBody(req: import("http").IncomingMessage): Promise<Record<strin
   });
 }
 
+async function readRawBody(req: import("http").IncomingMessage): Promise<string> {
+  return new Promise((resolve) => {
+    let raw = "";
+    req.on("data", (chunk) => {
+      raw += chunk;
+    });
+    req.on("end", () => resolve(raw));
+  });
+}
+
 const devAuthPlugin = {
   name: "dev-auth-routes",
   configureServer(server: import("vite").ViteDevServer) {
@@ -216,6 +228,44 @@ const devAuthPlugin = {
         const message = error instanceof Error ? error.message : "Unknown proxy error";
         sendJson(res, 502, { error: message });
       }
+    });
+
+    server.middlewares.use("/api/stock", async (req, res) => {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { error: "Method not allowed" });
+        return;
+      }
+
+      const raw = await readRawBody(req);
+      try {
+        (req as import("http").IncomingMessage & { body?: unknown }).body =
+          raw && raw.trim().length > 0 ? JSON.parse(raw) : {};
+      } catch {
+        (req as import("http").IncomingMessage & { body?: unknown }).body = {};
+      }
+
+      const vercelLikeRes = res as import("http").ServerResponse & {
+        status: (code: number) => typeof vercelLikeRes;
+        json: (payload: unknown) => typeof vercelLikeRes;
+      };
+
+      vercelLikeRes.status = (code: number) => {
+        res.statusCode = code;
+        return vercelLikeRes;
+      };
+
+      vercelLikeRes.json = (payload: unknown) => {
+        if (!res.getHeader("Content-Type")) {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+        }
+        res.end(JSON.stringify(payload));
+        return vercelLikeRes;
+      };
+
+      await stockHandler(
+        req as import("http").IncomingMessage & { body?: unknown },
+        vercelLikeRes,
+      );
     });
 
     server.middlewares.use("/api/auth/session", (req, res) => {

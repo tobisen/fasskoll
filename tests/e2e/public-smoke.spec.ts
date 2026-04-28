@@ -7,7 +7,7 @@ test.describe("Fasskoll public smoke", () => {
     await expect(page.getByText("inte en officiell tjänst från Fass", { exact: false })).toBeVisible();
   });
 
-  test("Estradot public flow returns data or controlled fallback", async ({ page }) => {
+  test("public medicine flow returns data or controlled fallback", async ({ page }) => {
     await page.goto("/search?medicine=Estradot&zipCode=75318&autostart=1");
 
     await expect(page.getByRole("heading", { name: "Sök lagerstatus" })).toBeVisible();

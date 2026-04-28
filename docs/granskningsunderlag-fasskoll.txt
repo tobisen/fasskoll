@@ -30,12 +30,12 @@ Tjänsten är uttryckligen markerad som **ej officiell**.
 ## 3. Funktionell översikt (det som byggts)
 
 ### Publika funktioner
-- Snabbval för 4 läkemedel: Estradot, Lenzetto, Divigel, Estrogel
+- Snabbval för 5 läkemedel: Estradot, Lenzetto, Divigel, Estrogel, Utrogestan
 - Sökning startar på explicit användarinteraktion (klick/knapp)
 - Lagerstatuslista per apotek med:
   - apotek
-  - styrka
-  - förpackningstyp
+  - styrka (läkemedelsstyrka, ej förpackningsantal)
+  - förpackningstyp/storlek (t.ex. `24 styck, Påse`)
   - adress
   - grupperad lagerstatus
 - Statusfilter i UI (Alla / I lager / Ej i lager / Kontakta apotek)

@@ -40,7 +40,12 @@ const hardeningItems: Item[] = [
   {
     title: "Lägg till tre vanligaste mediciner som fasta menyalternativ",
     status: "implemented",
-    details: "Fasta menyalternativ finns (nu fyra, inkl. Estrogel) för att minska fri sökbredd.",
+    details: "Fasta menyalternativ finns (nu fem: Estradot, Lenzetto, Divigel, Estrogel, Utrogestan) för att minska fri sökbredd.",
+  },
+  {
+    title: "Visa korrekt styrka och förpackning i resultat",
+    status: "implemented",
+    details: "Resultattabellen visar läkemedelsstyrka separat från förpackningstyp/-storlek (t.ex. 24 styck, Påse).",
   },
   {
     title: "Lägg all Fass-kommunikation i ett enda fassClient/service-lager",

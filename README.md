@@ -5,8 +5,8 @@ Fasskoll är en Vue 3 + Vite + TypeScript-applikation för att visa lagerstatus 
 Tjänsten är en intern hobbylösning och är tydligt markerad som **ej officiell Fass-tjänst**.
 
 ## Funktioner
-- Publika snabbval: Estradot, Lenzetto, Divigel, Estrogel
-- Lagerstatus per apotek med styrka, förpackningstyp, adress och status
+- Publika snabbval: Estradot, Lenzetto, Divigel, Estrogel, Utrogestan
+- Lagerstatus per apotek med styrka (t.ex. `25 mikrog/24 timmar`), förpackningstyp/storlek (t.ex. `24 styck, Påse`), adress och status
 - Statusfilter (Alla / I lager / Ej i lager / Kontakta apotek)
 - Inloggat läge för fri läkemedelssökning
 - Adminvyer för drift, trafik, fel, toppar och hardening-status

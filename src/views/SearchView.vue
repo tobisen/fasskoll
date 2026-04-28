@@ -53,7 +53,7 @@ const selectedMedicineLabel = ref("");
 const loadingMedicineSearch = ref(false);
 const selectedRadiusKm = ref(10);
 const searchCenter = ref<{ latitude: number; longitude: number } | null>(null);
-const PUBLIC_MEDICINES = new Set(["estradot", "lenzetto", "divigel", "estrogel"]);
+const PUBLIC_MEDICINES = new Set(["estradot", "lenzetto", "divigel", "estrogel", "utrogestan"]);
 const infoMessage = ref("");
 const lastAutostartKey = ref("");
 const SEARCH_COOLDOWN_MS = 8_000;
@@ -82,6 +82,11 @@ function stockGroup(code: string): "IN_STOCK" | "OUT_OF_STOCK" | "CONTACT_PHARMA
 
 function stockLabel(code: string): string {
   return STOCK_GROUP_LABELS[stockGroup(code)];
+}
+
+function strengthLabelForDisplay(value: string): string {
+  const trimmed = value?.trim?.() ?? "";
+  return trimmed.length > 0 ? trimmed : "Styrka saknas";
 }
 
 function isRateLimitErrorMessage(message: string): boolean {
@@ -353,15 +358,25 @@ function toFormStrengthOption(pkgObj: Record<string, unknown>, fallbackId: strin
     (typeof pkgObj.pharmaceuticalForm === "string" && pkgObj.pharmaceuticalForm.trim()) ||
     undefined;
   const strength =
-    (typeof pkgObj.strengthAndUnit === "string" && pkgObj.strengthAndUnit.trim()) ||
     (typeof pkgObj.strength === "string" && pkgObj.strength.trim()) ||
+    (typeof pkgObj.strengthAndUnit === "string" && pkgObj.strengthAndUnit.trim()) ||
     undefined;
   const manufacturer =
     (typeof pkgObj.companyName === "string" && pkgObj.companyName.trim()) ||
     undefined;
+  const packageSizeAndContainer =
+    typeof pkgObj.quantity === "number" &&
+    typeof pkgObj.quantityUnit === "string" &&
+    pkgObj.quantityUnit.trim() &&
+    typeof pkgObj.container === "string" &&
+    pkgObj.container.trim()
+      ? `${String(pkgObj.quantity)} ${pkgObj.quantityUnit.trim()}, ${pkgObj.container.trim()}`
+      : undefined;
   const packageType =
     (typeof pkgObj.packagingName === "string" && pkgObj.packagingName.trim()) ||
+    packageSizeAndContainer ||
     (typeof pkgObj.container === "string" && pkgObj.container.trim()) ||
+    (typeof pkgObj.fassContainer === "string" && pkgObj.fassContainer.trim()) ||
     undefined;
 
   const labelParts = [form, strength].filter((part): part is string => Boolean(part));
@@ -437,7 +452,7 @@ async function handleMedicineSearch() {
 
   if (!props.isLoggedIn && !guestAllowedMedicine) {
     setUiError(
-      "Logga in för att söka valfria läkemedel. Estradot, Lenzetto, Divigel och Estrogel är tillgängliga utan inloggning.",
+      "Logga in för att söka valfria läkemedel. Estradot, Lenzetto, Divigel, Estrogel och Utrogestan är tillgängliga utan inloggning.",
     );
     return;
   }
@@ -589,7 +604,20 @@ async function checkStock() {
       const details = await response
         .json()
         .then((json) => (typeof json?.error === "string" ? json.error : "Okänt fel"))
-        .catch(() => "Okänt fel");
+        .catch(async () => {
+          try {
+            const text = await response.text();
+            if (typeof text === "string" && text.trim().length > 0) {
+              if (text.toLowerCase().includes("<!doctype html") || text.toLowerCase().includes("<html")) {
+                return "Lokalt API-svar var HTML istället för JSON. Kontrollera att /api/stock körs i dev-servern.";
+              }
+              return text.slice(0, 220);
+            }
+          } catch {
+            // ignore
+          }
+          return "Okänt fel";
+        });
       throw new Error(details);
     }
 
@@ -689,7 +717,7 @@ watch(selectedRadiusKm, () => {
     <header class="page-header">
       <p class="eyebrow">Fasskoll Regionläge</p>
       <h1>Sök lagerstatus</h1>
-      <p>Liveöversikt över apoteksstatus för Estradot, Lenzetto, Divigel och Estrogel, med fokus på tillgängliga alternativ.</p>
+      <p>Liveöversikt över apoteksstatus för Estradot, Lenzetto, Divigel, Estrogel och Utrogestan, med fokus på tillgängliga alternativ.</p>
     </header>
 
     <p v-if="loadingOptions" class="info">Laddar läkemedelsformer och styrkor...</p>
@@ -711,7 +739,7 @@ watch(selectedRadiusKm, () => {
         </div>
       </template>
       <div v-else class="info">
-        Publikt läge: <strong>Estradot</strong>, <strong>Lenzetto</strong>, <strong>Divigel</strong> och <strong>Estrogel</strong> är tillgängliga utan inloggning.
+        Publikt läge: <strong>Estradot</strong>, <strong>Lenzetto</strong>, <strong>Divigel</strong>, <strong>Estrogel</strong> och <strong>Utrogestan</strong> är tillgängliga utan inloggning.
       </div>
 
       <p v-if="selectedMedicineLabel" class="medicine-results">
@@ -768,7 +796,7 @@ watch(selectedRadiusKm, () => {
             :key="item.key"
           >
             <td>{{ item.pharmacy.name ?? "Okänt apotek" }}</td>
-            <td>{{ item.strengthLabel }}</td>
+            <td>{{ strengthLabelForDisplay(item.strengthLabel) }}</td>
             <td>{{ item.packageType }}</td>
             <td>
               {{

@@ -206,6 +206,18 @@ watch(
         >
           Estrogel
         </router-link>
+        <router-link
+          :to="{
+            path: '/search',
+            query: {
+              medicine: 'Utrogestan',
+              zipCode: '75318',
+              autostart: '1',
+            },
+          }"
+        >
+          Utrogestan
+        </router-link>
         <router-link v-if="currentUsername === 'admin'" to="/admin">Admin</router-link>
         <router-link v-if="currentUsername === 'admin'" to="/admin/hardening">Skydd</router-link>
       </nav>

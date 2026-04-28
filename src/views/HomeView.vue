@@ -44,6 +44,10 @@ const isAdmin = props.isLoggedIn && props.currentUsername === "admin";
           <strong>Estrogel</strong>
           <span>Gel</span>
         </router-link>
+        <router-link class="quick-card" :to="{ path: '/search', query: { medicine: 'Utrogestan', zipCode: '75318', autostart: '1' } }">
+          <strong>Utrogestan</strong>
+          <span>Kapsel</span>
+        </router-link>
       </div>
     </section>
 
