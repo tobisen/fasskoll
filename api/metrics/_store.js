@@ -48,6 +48,9 @@ function initialState() {
         },
       },
       minuteBuckets: {},
+      dayBuckets: {},
+      pageViewDayBuckets: {},
+      errorDayBuckets: {},
       recentErrors: [],
     },
   };
@@ -161,12 +164,37 @@ function normalizeTraffic(raw) {
   const byRouteRaw = raw.byRoute && typeof raw.byRoute === "object" ? raw.byRoute : {};
   const minuteBucketsRaw =
     raw.minuteBuckets && typeof raw.minuteBuckets === "object" ? raw.minuteBuckets : {};
+  const dayBucketsRaw =
+    raw.dayBuckets && typeof raw.dayBuckets === "object" ? raw.dayBuckets : {};
+  const pageViewDayBucketsRaw =
+    raw.pageViewDayBuckets && typeof raw.pageViewDayBuckets === "object"
+      ? raw.pageViewDayBuckets
+      : {};
+  const errorDayBucketsRaw =
+    raw.errorDayBuckets && typeof raw.errorDayBuckets === "object"
+      ? raw.errorDayBuckets
+      : {};
   const recentErrorsRaw = Array.isArray(raw.recentErrors) ? raw.recentErrors : [];
 
   const minuteBuckets = {};
   for (const [key, value] of Object.entries(minuteBucketsRaw)) {
     if (typeof key !== "string" || typeof value !== "number" || value < 0) continue;
     minuteBuckets[key] = value;
+  }
+  const dayBuckets = {};
+  for (const [key, value] of Object.entries(dayBucketsRaw)) {
+    if (typeof key !== "string" || typeof value !== "number" || value < 0) continue;
+    dayBuckets[key] = value;
+  }
+  const pageViewDayBuckets = {};
+  for (const [key, value] of Object.entries(pageViewDayBucketsRaw)) {
+    if (typeof key !== "string" || typeof value !== "number" || value < 0) continue;
+    pageViewDayBuckets[key] = value;
+  }
+  const errorDayBuckets = {};
+  for (const [key, value] of Object.entries(errorDayBucketsRaw)) {
+    if (typeof key !== "string" || typeof value !== "number" || value < 0) continue;
+    errorDayBuckets[key] = value;
   }
 
   const recentErrors = recentErrorsRaw
@@ -188,6 +216,9 @@ function normalizeTraffic(raw) {
       stock: normalizeRouteStats(byRouteRaw.stock),
     },
     minuteBuckets,
+    dayBuckets,
+    pageViewDayBuckets,
+    errorDayBuckets,
     recentErrors,
   };
 }

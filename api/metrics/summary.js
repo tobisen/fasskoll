@@ -49,6 +49,67 @@ function computePeaks(minuteBuckets) {
   };
 }
 
+function computePeriodStats(dayBuckets, minuteBuckets, pageViewDayBuckets, errorDayBuckets, visitors) {
+  const now = Date.now();
+  const periods = {
+    day: 1,
+    week: 7,
+    month: 30,
+    year: 365,
+  };
+
+  const dayEntries = Object.entries(dayBuckets || {}).map(([day, count]) => ({
+    timestamp: Date.parse(`${day}T00:00:00Z`),
+    count: safeNumber(count),
+  }));
+  const minuteEntries = Object.entries(minuteBuckets || {}).map(([minute, count]) => ({
+    timestamp: Date.parse(`${minute}:00Z`),
+    count: safeNumber(count),
+  }));
+  const pageViewEntries = Object.entries(pageViewDayBuckets || {}).map(([day, count]) => ({
+    timestamp: Date.parse(`${day}T00:00:00Z`),
+    count: safeNumber(count),
+  }));
+  const errorEntries = Object.entries(errorDayBuckets || {}).map(([day, count]) => ({
+    timestamp: Date.parse(`${day}T00:00:00Z`),
+    count: safeNumber(count),
+  }));
+
+  const result = {};
+  for (const [key, days] of Object.entries(periods)) {
+    const from = now - days * 24 * 60 * 60 * 1000;
+    const requests = dayEntries
+      .filter((entry) => Number.isFinite(entry.timestamp) && entry.timestamp >= from)
+      .reduce((sum, entry) => sum + entry.count, 0);
+    const peakRpm = minuteEntries
+      .filter((entry) => Number.isFinite(entry.timestamp) && entry.timestamp >= from)
+      .reduce((max, entry) => Math.max(max, entry.count), 0);
+    const pageViews = pageViewEntries
+      .filter((entry) => Number.isFinite(entry.timestamp) && entry.timestamp >= from)
+      .reduce((sum, entry) => sum + entry.count, 0);
+    const errors = errorEntries
+      .filter((entry) => Number.isFinite(entry.timestamp) && entry.timestamp >= from)
+      .reduce((sum, entry) => sum + entry.count, 0);
+    const uniqueVisitors = Object.values(visitors || {}).reduce((sum, value) => {
+      const ts =
+        value && typeof value === "object" && typeof value.lastSeenAt === "number"
+          ? value.lastSeenAt
+          : 0;
+      return ts >= from ? sum + 1 : sum;
+    }, 0);
+    result[key] = {
+      requests,
+      pageViews,
+      errors,
+      uniqueVisitors,
+      peakRpm,
+      avgPerDay: Math.round(requests / days),
+      days,
+    };
+  }
+  return result;
+}
+
 export default async function handler(req, res) {
   if (req.method !== "GET") {
     res.status(405).json({ error: "Method not allowed" });
@@ -66,6 +127,13 @@ export default async function handler(req, res) {
   const traffic = state.traffic || {};
   const byRoute = traffic.byRoute || {};
   const peaks = computePeaks(traffic.minuteBuckets || {});
+  const periodStats = computePeriodStats(
+    traffic.dayBuckets || {},
+    traffic.minuteBuckets || {},
+    traffic.pageViewDayBuckets || {},
+    traffic.errorDayBuckets || {},
+    state.visitors || {},
+  );
   const recentErrors = Array.isArray(traffic.recentErrors)
     ? traffic.recentErrors.slice(0, 20)
     : [];
@@ -106,6 +174,7 @@ export default async function handler(req, res) {
       recentErrors,
     },
     peaks,
+    periodStats,
     fassService: getFassServiceRuntimeState(),
     metricsStorage: getMetricsStorageMode(),
     updatedAt: state.updatedAt || null,

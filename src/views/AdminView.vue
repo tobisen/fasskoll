@@ -59,12 +59,24 @@ type FassServiceSummary = {
   lastCircuitOpenedAt: string | null;
 };
 
+type PeriodKey = "day" | "week" | "month" | "year";
+type PeriodMetric = {
+  requests: number;
+  pageViews: number;
+  errors: number;
+  uniqueVisitors: number;
+  peakRpm: number;
+  avgPerDay: number;
+  days: number;
+};
+
 const loading = ref(false);
 const error = ref("");
 const uniqueVisitors = ref<number>(0);
 const pageViews = ref<number>(0);
 const updatedAt = ref<string | null>(null);
 const metricsStorage = ref("tmp");
+const selectedPeriod = ref<PeriodKey>("day");
 const traffic = ref<TrafficSummary>({
   totalRequests: 0,
   byRoute: {
@@ -115,6 +127,12 @@ const fassService = ref<FassServiceSummary>({
   consecutiveFailures: 0,
   circuitOpenedCount: 0,
   lastCircuitOpenedAt: null,
+});
+const periodStats = ref<Record<PeriodKey, PeriodMetric>>({
+  day: { requests: 0, pageViews: 0, errors: 0, uniqueVisitors: 0, peakRpm: 0, avgPerDay: 0, days: 1 },
+  week: { requests: 0, pageViews: 0, errors: 0, uniqueVisitors: 0, peakRpm: 0, avgPerDay: 0, days: 7 },
+  month: { requests: 0, pageViews: 0, errors: 0, uniqueVisitors: 0, peakRpm: 0, avgPerDay: 0, days: 30 },
+  year: { requests: 0, pageViews: 0, errors: 0, uniqueVisitors: 0, peakRpm: 0, avgPerDay: 0, days: 365 },
 });
 
 const isAdmin = computed(
@@ -173,6 +191,7 @@ const rateLimitedLast15Min = computed(() => {
     return Number.isFinite(ts) && now - ts <= windowMs;
   }).length;
 });
+const selectedPeriodStats = computed(() => periodStats.value[selectedPeriod.value]);
 
 function formatDate(value: string | null) {
   if (!value) return "-";
@@ -308,6 +327,45 @@ async function loadSummary() {
 
     metricsStorage.value =
       typeof payload?.metricsStorage === "string" ? payload.metricsStorage : "tmp";
+    const incomingPeriodStats = payload?.periodStats ?? {};
+    periodStats.value = {
+      day: {
+        requests: safeNumber(incomingPeriodStats?.day?.requests),
+        pageViews: safeNumber(incomingPeriodStats?.day?.pageViews),
+        errors: safeNumber(incomingPeriodStats?.day?.errors),
+        uniqueVisitors: safeNumber(incomingPeriodStats?.day?.uniqueVisitors),
+        peakRpm: safeNumber(incomingPeriodStats?.day?.peakRpm),
+        avgPerDay: safeNumber(incomingPeriodStats?.day?.avgPerDay),
+        days: safeNumber(incomingPeriodStats?.day?.days) || 1,
+      },
+      week: {
+        requests: safeNumber(incomingPeriodStats?.week?.requests),
+        pageViews: safeNumber(incomingPeriodStats?.week?.pageViews),
+        errors: safeNumber(incomingPeriodStats?.week?.errors),
+        uniqueVisitors: safeNumber(incomingPeriodStats?.week?.uniqueVisitors),
+        peakRpm: safeNumber(incomingPeriodStats?.week?.peakRpm),
+        avgPerDay: safeNumber(incomingPeriodStats?.week?.avgPerDay),
+        days: safeNumber(incomingPeriodStats?.week?.days) || 7,
+      },
+      month: {
+        requests: safeNumber(incomingPeriodStats?.month?.requests),
+        pageViews: safeNumber(incomingPeriodStats?.month?.pageViews),
+        errors: safeNumber(incomingPeriodStats?.month?.errors),
+        uniqueVisitors: safeNumber(incomingPeriodStats?.month?.uniqueVisitors),
+        peakRpm: safeNumber(incomingPeriodStats?.month?.peakRpm),
+        avgPerDay: safeNumber(incomingPeriodStats?.month?.avgPerDay),
+        days: safeNumber(incomingPeriodStats?.month?.days) || 30,
+      },
+      year: {
+        requests: safeNumber(incomingPeriodStats?.year?.requests),
+        pageViews: safeNumber(incomingPeriodStats?.year?.pageViews),
+        errors: safeNumber(incomingPeriodStats?.year?.errors),
+        uniqueVisitors: safeNumber(incomingPeriodStats?.year?.uniqueVisitors),
+        peakRpm: safeNumber(incomingPeriodStats?.year?.peakRpm),
+        avgPerDay: safeNumber(incomingPeriodStats?.year?.avgPerDay),
+        days: safeNumber(incomingPeriodStats?.year?.days) || 365,
+      },
+    };
   } catch (err) {
     error.value = err instanceof Error ? err.message : "Okänt fel";
   } finally {
@@ -400,6 +458,40 @@ watch(
         <button type="button" :disabled="loading" @click="loadSummary">
           {{ loading ? "Laddar..." : "Uppdatera" }}
         </button>
+      </div>
+
+      <h2 class="section-title">Periodstatistik</h2>
+      <div class="toolbar-links">
+        <button class="tab-link" :class="{ active: selectedPeriod === 'day' }" type="button" @click="selectedPeriod = 'day'">Dag</button>
+        <button class="tab-link" :class="{ active: selectedPeriod === 'week' }" type="button" @click="selectedPeriod = 'week'">Vecka</button>
+        <button class="tab-link" :class="{ active: selectedPeriod === 'month' }" type="button" @click="selectedPeriod = 'month'">Månad</button>
+        <button class="tab-link" :class="{ active: selectedPeriod === 'year' }" type="button" @click="selectedPeriod = 'year'">År</button>
+      </div>
+      <div class="stats-grid">
+        <article class="stat-card">
+          <h2>Besökare (vald period)</h2>
+          <p class="stat-value">{{ selectedPeriodStats.uniqueVisitors }}</p>
+        </article>
+        <article class="stat-card">
+          <h2>Sidvisningar (vald period)</h2>
+          <p class="stat-value">{{ selectedPeriodStats.pageViews }}</p>
+        </article>
+        <article class="stat-card">
+          <h2>Fel (vald period)</h2>
+          <p class="stat-value">{{ selectedPeriodStats.errors }}</p>
+        </article>
+        <article class="stat-card">
+          <h2>Anrop (vald period)</h2>
+          <p class="stat-value">{{ selectedPeriodStats.requests }}</p>
+        </article>
+        <article class="stat-card">
+          <h2>Topp RPM (vald period)</h2>
+          <p class="stat-value">{{ selectedPeriodStats.peakRpm }}</p>
+        </article>
+        <article class="stat-card">
+          <h2>Snitt anrop/dag</h2>
+          <p class="stat-value">{{ selectedPeriodStats.avgPerDay }}</p>
+        </article>
       </div>
 
       <h2 class="section-title">Trafik per endpoint</h2>

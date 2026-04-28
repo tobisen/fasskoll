@@ -2,10 +2,15 @@ import { readMetricsState, writeMetricsState } from "./_store.js";
 
 const MAX_RECENT_ERRORS = 80;
 const MINUTE_BUCKET_RETENTION_MINUTES = 24 * 60;
+const DAY_BUCKET_RETENTION_DAYS = 400;
 const MAX_ERROR_MESSAGE_LENGTH = 180;
 
 function minuteKey(date = new Date()) {
   return date.toISOString().slice(0, 16);
+}
+
+function dayKey(date = new Date()) {
+  return date.toISOString().slice(0, 10);
 }
 
 function trimMinuteBuckets(minuteBuckets) {
@@ -16,6 +21,20 @@ function trimMinuteBuckets(minuteBuckets) {
   for (let i = 0; i < toRemove; i += 1) {
     delete minuteBuckets[entries[i][0]];
   }
+}
+
+function trimDayBuckets(dayBuckets) {
+  const entries = Object.entries(dayBuckets);
+  if (entries.length <= DAY_BUCKET_RETENTION_DAYS) return;
+  entries.sort((a, b) => a[0].localeCompare(b[0]));
+  const toRemove = entries.length - DAY_BUCKET_RETENTION_DAYS;
+  for (let i = 0; i < toRemove; i += 1) {
+    delete dayBuckets[entries[i][0]];
+  }
+}
+
+function bumpDayBucket(container, key) {
+  container[key] = (container[key] || 0) + 1;
 }
 
 function ensureRoute(state, route) {
@@ -92,11 +111,17 @@ export async function recordTrafficEvent({
         message: sanitizeErrorMessage(message),
       });
       state.traffic.recentErrors = state.traffic.recentErrors.slice(0, MAX_RECENT_ERRORS);
+      const dKey = dayKey();
+      bumpDayBucket(state.traffic.errorDayBuckets, dKey);
+      trimDayBuckets(state.traffic.errorDayBuckets);
     }
 
     const key = minuteKey();
     state.traffic.minuteBuckets[key] = (state.traffic.minuteBuckets[key] || 0) + 1;
     trimMinuteBuckets(state.traffic.minuteBuckets);
+    const dKey = dayKey();
+    bumpDayBucket(state.traffic.dayBuckets, dKey);
+    trimDayBuckets(state.traffic.dayBuckets);
 
     state.updatedAt = new Date().toISOString();
     await writeMetricsState(state);

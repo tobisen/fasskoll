@@ -5,6 +5,10 @@ function hashVisitorId(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
 
+function dayKey(date = new Date()) {
+  return date.toISOString().slice(0, 10);
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
@@ -24,6 +28,9 @@ export default async function handler(req, res) {
 
   state.pageViews += 1;
   state.visitors[key] = { lastSeenAt: Date.now() };
+  const dKey = dayKey();
+  state.traffic.pageViewDayBuckets[dKey] =
+    (state.traffic.pageViewDayBuckets[dKey] || 0) + 1;
   state.updatedAt = new Date().toISOString();
 
   await writeMetricsState(state);
