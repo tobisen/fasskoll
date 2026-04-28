@@ -47,7 +47,10 @@ const buckets = ref<Buckets>({
 
 const selectedPeriodStats = computed(() => periodStats.value[selectedPeriod.value]);
 const chartMax = (values: number[]) => Math.max(1, ...values);
-const barHeightPercent = (value: number, max: number) => `${Math.max(2, Math.round((value / max) * 100))}%`;
+const barHeightPercent = (value: number, max: number) => {
+  if (!Number.isFinite(value) || value <= 0) return "0%";
+  return `${Math.max(4, Math.round((value / max) * 100))}%`;
+};
 const safeNumber = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
 
 function ymd(date: Date): string {
@@ -252,8 +255,8 @@ h1 { margin: 0.15rem 0 0.35rem; }
 .charts-grid { display: grid; grid-template-columns: repeat(2, minmax(280px, 1fr)); gap: 0.9rem; margin-bottom: 1rem; }
 .chart-card { border: 1px solid var(--line); border-radius: 12px; padding: 0.8rem; background: var(--surface-strong); }
 .chart-card h3 { margin: 0 0 0.6rem; font-size: 0.95rem; }
-.bars { height: 170px; border: 1px solid var(--line); border-radius: 10px; padding: 0.5rem; display: flex; align-items: flex-end; gap: 0.3rem; overflow-x: auto; background: #fff; }
-.bar-col { min-width: 26px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 0.3rem; }
+.bars { height: 170px; border: 1px solid var(--line); border-radius: 10px; padding: 0.5rem; display: flex; align-items: flex-end; gap: 0.2rem; overflow-x: hidden; background: #fff; }
+.bar-col { min-width: 0; flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 0.3rem; }
 .bar { width: 100%; min-height: 2px; border-radius: 6px 6px 0 0; background: linear-gradient(180deg, var(--primary) 0%, var(--primary-strong) 100%); }
 .bar-label { font-size: 0.66rem; color: var(--muted); white-space: nowrap; }
 .toolbar { margin-top: 0.8rem; }
