@@ -51,7 +51,22 @@ const barHeightPercent = (value: number, max: number) => {
   if (!Number.isFinite(value) || value <= 0) return "0%";
   return `${Math.max(4, Math.round((value / max) * 100))}%`;
 };
-const safeNumber = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+const safeNumber = (value: unknown) => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
+
+function parseBucketDate(raw: string): Date | null {
+  const localFirst = new Date(raw);
+  if (!Number.isNaN(localFirst.getTime())) return localFirst;
+  const utcFallback = new Date(`${raw}Z`);
+  if (!Number.isNaN(utcFallback.getTime())) return utcFallback;
+  return null;
+}
 
 function ymd(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -62,9 +77,8 @@ function buildDayByHour(source: Record<string, number>) {
   const labels = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}:00`);
   const values = Array.from({ length: 24 }, () => 0);
   for (const [minuteKey, count] of Object.entries(source || {})) {
-    const ts = Date.parse(`${minuteKey}:00Z`);
-    if (!Number.isFinite(ts)) continue;
-    const d = new Date(ts);
+    const d = parseBucketDate(`${minuteKey}:00`);
+    if (!d) continue;
     if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) {
       values[d.getHours()] += safeNumber(count);
     }
@@ -110,9 +124,8 @@ function buildYearByMonth(source: Record<string, number>) {
   const labels = ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"];
   const values = Array.from({ length: 12 }, () => 0);
   for (const [dayKey, count] of Object.entries(source || {})) {
-    const ts = Date.parse(`${dayKey}T00:00:00Z`);
-    if (!Number.isFinite(ts)) continue;
-    const d = new Date(ts);
+    const d = parseBucketDate(`${dayKey}T00:00:00`);
+    if (!d) continue;
     if (d.getFullYear() === year) values[d.getMonth()] += safeNumber(count);
   }
   return { labels, values };
@@ -255,9 +268,9 @@ h1 { margin: 0.15rem 0 0.35rem; }
 .charts-grid { display: grid; grid-template-columns: repeat(2, minmax(280px, 1fr)); gap: 0.9rem; margin-bottom: 1rem; }
 .chart-card { border: 1px solid var(--line); border-radius: 12px; padding: 0.8rem; background: var(--surface-strong); }
 .chart-card h3 { margin: 0 0 0.6rem; font-size: 0.95rem; }
-.bars { height: 170px; border: 1px solid var(--line); border-radius: 10px; padding: 0.5rem; display: flex; align-items: flex-end; gap: 0.2rem; overflow-x: hidden; background: #fff; }
-.bar-col { min-width: 0; flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 0.3rem; }
-.bar { width: 100%; min-height: 2px; border-radius: 6px 6px 0 0; background: linear-gradient(180deg, var(--primary) 0%, var(--primary-strong) 100%); }
+.bars { height: 170px; border: 1px solid var(--line); border-radius: 10px; padding: 0.5rem; display: flex; align-items: flex-end; gap: 0.28rem; overflow-x: auto; background: #fff; }
+.bar-col { min-width: 24px; flex: 1 0 24px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 0.3rem; }
+.bar { width: 100%; min-height: 0; border-radius: 6px 6px 0 0; background: linear-gradient(180deg, var(--primary) 0%, var(--primary-strong) 100%); }
 .bar-label { font-size: 0.66rem; color: var(--muted); white-space: nowrap; }
 .toolbar { margin-top: 0.8rem; }
 button { border: none; border-radius: 10px; padding: 0.65rem 1rem; background: linear-gradient(135deg, var(--primary) 0%, var(--primary-strong) 100%); color: #fff; font-weight: 600; cursor: pointer; }
