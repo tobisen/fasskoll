@@ -20,6 +20,7 @@ type PeriodMetric = {
 type Buckets = {
   minute: Record<string, number>;
   day: Record<string, number>;
+  pageViewsByDay: Record<string, number>;
   visitorHours: Record<string, number>;
   visitorDays: Record<string, number>;
   errorMinutes: Record<string, number>;
@@ -42,6 +43,7 @@ const periodStats = ref<Record<PeriodKey, PeriodMetric>>({
 const buckets = ref<Buckets>({
   minute: {},
   day: {},
+  pageViewsByDay: {},
   visitorHours: {},
   visitorDays: {},
   errorMinutes: {},
@@ -236,28 +238,20 @@ const reqMonthTotal = computed(() => reqMonth.value.values.reduce((sum, value) =
 const reqYearTotal = computed(() => reqYear.value.values.reduce((sum, value) => sum + safeNumber(value), 0));
 
 const visitorsDay = computed(() => {
-  const base = buildDayByHour(buckets.value.visitorHours);
+  const base = { labels: reqDay.value.labels, values: Array.from({ length: 24 }, () => 0) };
   const today = ymd(new Date());
-  const visitorsFromDayBucket = safeNumber((buckets.value.visitorDays as Record<string, unknown>)[today]);
-  const visitorsFromPeriodDay = safeNumber(dayPeriodStats.value.uniqueVisitors);
+  const visitorsFromDayBucket = safeNumber((buckets.value.pageViewsByDay as Record<string, unknown>)[today]);
+  const visitorsFromPeriodDay = safeNumber(dayPeriodStats.value.pageViews);
   const todayVisitorsTotal = Math.max(visitorsFromDayBucket, visitorsFromPeriodDay);
-  const knownVisitors = base.values.reduce((sum, value) => sum + safeNumber(value), 0);
-
-  if (todayVisitorsTotal <= knownVisitors) {
-    return base;
-  }
-
-  const missing = todayVisitorsTotal - knownVisitors;
-  const weights = reqDay.value.values.map((v) => safeNumber(v));
-  const distributed = distributeByWeights(missing, weights);
+  const distributed = distributeByWeights(todayVisitorsTotal, reqDay.value.values.map((v) => safeNumber(v)));
   return {
     labels: base.labels,
     values: base.values.map((v, i) => safeNumber(v) + safeNumber(distributed[i])),
   };
 });
-const visitorsWeek = computed(() => buildWeekByDay(buckets.value.visitorDays));
-const visitorsMonth = computed(() => buildMonthByWeek(buckets.value.visitorDays));
-const visitorsYear = computed(() => buildYearByMonth(buckets.value.visitorDays));
+const visitorsWeek = computed(() => buildWeekByDay(buckets.value.pageViewsByDay));
+const visitorsMonth = computed(() => buildMonthByWeek(buckets.value.pageViewsByDay));
+const visitorsYear = computed(() => buildYearByMonth(buckets.value.pageViewsByDay));
 
 const errorsDay = computed(() => {
   const base = buildDayByHour(buckets.value.errorMinutes);
@@ -286,7 +280,7 @@ const errorsYear = computed(() => buildYearByMonth(buckets.value.errorsByDay));
 const visitorsWeekFinal = computed(() =>
   withMissingDistributed(
     visitorsWeek.value,
-    safeNumber(periodStats.value.week.uniqueVisitors),
+    safeNumber(periodStats.value.week.pageViews),
     reqWeek.value.values.map((v) => safeNumber(v)),
   ),
 );
@@ -294,7 +288,7 @@ const visitorsWeekFinal = computed(() =>
 const visitorsMonthFinal = computed(() =>
   withMissingDistributed(
     visitorsMonth.value,
-    safeNumber(periodStats.value.month.uniqueVisitors),
+    safeNumber(periodStats.value.month.pageViews),
     reqMonth.value.values.map((v) => safeNumber(v)),
   ),
 );
@@ -302,7 +296,7 @@ const visitorsMonthFinal = computed(() =>
 const visitorsYearFinal = computed(() =>
   withMissingDistributed(
     visitorsYear.value,
-    safeNumber(periodStats.value.year.uniqueVisitors),
+    safeNumber(periodStats.value.year.pageViews),
     reqYear.value.values.map((v) => safeNumber(v)),
   ),
 );
@@ -351,7 +345,7 @@ async function loadSummary() {
     const payload = await response.json();
     const incomingBuckets = payload?.traffic?.buckets ?? {};
     const visitorsFromBuckets = sumRecordValues(
-      typeof incomingBuckets.visitorDays === "object" ? incomingBuckets.visitorDays : {},
+      typeof incomingBuckets.pageViewsByDay === "object" ? incomingBuckets.pageViewsByDay : {},
     );
     totalUniqueVisitors.value = Math.max(
       safeNumber(payload?.uniqueVisitors),
@@ -371,6 +365,7 @@ async function loadSummary() {
     buckets.value = {
       minute: typeof incomingBuckets.minute === "object" ? incomingBuckets.minute : {},
       day: typeof incomingBuckets.day === "object" ? incomingBuckets.day : {},
+      pageViewsByDay: typeof incomingBuckets.pageViewsByDay === "object" ? incomingBuckets.pageViewsByDay : {},
       visitorHours: typeof incomingBuckets.visitorHours === "object" ? incomingBuckets.visitorHours : {},
       visitorDays: typeof incomingBuckets.visitorDays === "object" ? incomingBuckets.visitorDays : {},
       errorMinutes: typeof incomingBuckets.errorMinutes === "object" ? incomingBuckets.errorMinutes : {},
@@ -424,7 +419,7 @@ watch(() => [props.isLoggedIn, props.currentUsername], async () => {
         <article class="stat-card"><h2>Sidvisningar</h2><p class="stat-value">{{ totalPageViews }}</p><p class="small">Totalt</p></article>
         <article class="stat-card"><h2>Fel</h2><p class="stat-value">{{ totalErrors }}</p><p class="small">Totalt</p></article>
       </div>
-      <p class="small period-note">Vald period ({{ selectedPeriod === "day" ? "dag" : selectedPeriod === "week" ? "vecka" : selectedPeriod === "month" ? "månad" : "år" }}): Besökare {{ selectedPeriodStats.uniqueVisitors }}, Sidvisningar {{ selectedPeriodStats.pageViews }}, Fel {{ selectedPeriodStats.errors }}.</p>
+      <p class="small period-note">Vald period ({{ selectedPeriod === "day" ? "dag" : selectedPeriod === "week" ? "vecka" : selectedPeriod === "month" ? "månad" : "år" }}): Besökare {{ selectedPeriodStats.pageViews }}, Fel {{ selectedPeriodStats.errors }}.</p>
 
       <h2 class="section-title">Diagram (anrop)</h2>
       <div class="charts-grid">

@@ -70,7 +70,7 @@ type FassServiceSummary = {
 
 const loading = ref(false);
 const error = ref("");
-const uniqueVisitors = ref<number>(0);
+const visitors = ref<number>(0);
 const pageViews = ref<number>(0);
 const updatedAt = ref<string | null>(null);
 const metricsStorage = ref("tmp");
@@ -254,13 +254,13 @@ async function loadSummary() {
 
     const payload = await response.json();
     const incomingTraffic = payload?.traffic ?? {};
-    const incomingVisitorDays =
-      incomingTraffic?.buckets && typeof incomingTraffic.buckets.visitorDays === "object"
-        ? incomingTraffic.buckets.visitorDays
+    const incomingPageViewsByDay =
+      incomingTraffic?.buckets && typeof incomingTraffic.buckets.pageViewsByDay === "object"
+        ? incomingTraffic.buckets.pageViewsByDay
         : {};
-    uniqueVisitors.value = Math.max(
-      safeNumber(payload?.uniqueVisitors),
-      sumRecordValues(incomingVisitorDays),
+    visitors.value = Math.max(
+      safeNumber(payload?.pageViews),
+      sumRecordValues(incomingPageViewsByDay),
     );
     pageViews.value = safeNumber(payload?.pageViews);
     updatedAt.value = typeof payload?.updatedAt === "string" ? payload.updatedAt : null;
@@ -408,8 +408,8 @@ watch(
 
       <div class="stats-grid">
         <article class="stat-card">
-          <h2>Unika besökare</h2>
-          <p class="stat-value">{{ uniqueVisitors }}</p>
+          <h2>Besökare</h2>
+          <p class="stat-value">{{ visitors }}</p>
         </article>
         <article class="stat-card">
           <h2>Sidvisningar</h2>
