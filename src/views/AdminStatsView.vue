@@ -64,6 +64,14 @@ const safeNumber = (value: unknown) => {
   return 0;
 };
 
+function sumRecordValues(input: unknown): number {
+  if (!input || typeof input !== "object") return 0;
+  return Object.values(input as Record<string, unknown>).reduce<number>(
+    (sum, value) => sum + safeNumber(typeof value === "string" ? Number(value) : value),
+    0,
+  );
+}
+
 function parseBucketDate(raw: string): Date | null {
   const utcFirst = new Date(`${raw}Z`);
   if (!Number.isNaN(utcFirst.getTime())) return utcFirst;
@@ -341,7 +349,14 @@ async function loadSummary() {
     const response = await fetch("/api/metrics/summary", { method: "GET", credentials: "include", cache: "no-store" });
     if (!response.ok) throw new Error(response.status === 403 ? "Saknar behörighet." : "Kunde inte läsa statistik.");
     const payload = await response.json();
-    totalUniqueVisitors.value = safeNumber(payload?.uniqueVisitors);
+    const incomingBuckets = payload?.traffic?.buckets ?? {};
+    const visitorsFromBuckets = sumRecordValues(
+      typeof incomingBuckets.visitorDays === "object" ? incomingBuckets.visitorDays : {},
+    );
+    totalUniqueVisitors.value = Math.max(
+      safeNumber(payload?.uniqueVisitors),
+      visitorsFromBuckets,
+    );
     totalPageViews.value = safeNumber(payload?.pageViews);
     totalErrors.value =
       safeNumber(payload?.traffic?.byRoute?.content?.failed) +
@@ -353,7 +368,6 @@ async function loadSummary() {
       month: { requests: safeNumber(incomingPeriodStats?.month?.requests), pageViews: safeNumber(incomingPeriodStats?.month?.pageViews), errors: safeNumber(incomingPeriodStats?.month?.errors), uniqueVisitors: safeNumber(incomingPeriodStats?.month?.uniqueVisitors), peakRpm: safeNumber(incomingPeriodStats?.month?.peakRpm), avgPerDay: safeNumber(incomingPeriodStats?.month?.avgPerDay), days: safeNumber(incomingPeriodStats?.month?.days) || 30 },
       year: { requests: safeNumber(incomingPeriodStats?.year?.requests), pageViews: safeNumber(incomingPeriodStats?.year?.pageViews), errors: safeNumber(incomingPeriodStats?.year?.errors), uniqueVisitors: safeNumber(incomingPeriodStats?.year?.uniqueVisitors), peakRpm: safeNumber(incomingPeriodStats?.year?.peakRpm), avgPerDay: safeNumber(incomingPeriodStats?.year?.avgPerDay), days: safeNumber(incomingPeriodStats?.year?.days) || 365 },
     };
-    const incomingBuckets = payload?.traffic?.buckets ?? {};
     buckets.value = {
       minute: typeof incomingBuckets.minute === "object" ? incomingBuckets.minute : {},
       day: typeof incomingBuckets.day === "object" ? incomingBuckets.day : {},

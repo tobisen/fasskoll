@@ -215,6 +215,14 @@ function safeNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function sumRecordValues(input: unknown): number {
+  if (!input || typeof input !== "object") return 0;
+  return Object.values(input as Record<string, unknown>).reduce<number>(
+    (sum, value) => sum + safeNumber(typeof value === "string" ? Number(value) : value),
+    0,
+  );
+}
+
 function renderErrorMessage(item: {
   status: number | null;
   message: string;
@@ -245,11 +253,17 @@ async function loadSummary() {
     }
 
     const payload = await response.json();
-    uniqueVisitors.value = safeNumber(payload?.uniqueVisitors);
+    const incomingTraffic = payload?.traffic ?? {};
+    const incomingVisitorDays =
+      incomingTraffic?.buckets && typeof incomingTraffic.buckets.visitorDays === "object"
+        ? incomingTraffic.buckets.visitorDays
+        : {};
+    uniqueVisitors.value = Math.max(
+      safeNumber(payload?.uniqueVisitors),
+      sumRecordValues(incomingVisitorDays),
+    );
     pageViews.value = safeNumber(payload?.pageViews);
     updatedAt.value = typeof payload?.updatedAt === "string" ? payload.updatedAt : null;
-
-    const incomingTraffic = payload?.traffic ?? {};
     const byRoute = incomingTraffic?.byRoute ?? {};
     traffic.value = {
       totalRequests: safeNumber(incomingTraffic?.totalRequests),
