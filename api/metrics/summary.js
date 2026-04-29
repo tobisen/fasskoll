@@ -159,6 +159,10 @@ function mergeNumberRecords(a = {}, b = {}) {
   return out;
 }
 
+function sumRecordValues(input = {}) {
+  return Object.values(input || {}).reduce((sum, value) => sum + safeNumber(value), 0);
+}
+
 function deriveVisitorBucketsFromLegacyVisitors(visitors = {}) {
   const dayBuckets = {};
   const hourBuckets = {};
@@ -441,9 +445,11 @@ export default async function handler(req, res) {
       }
     }
 
+    const cumulativeVisitorsFromDays = sumRecordValues(mergedVisitorDayBuckets);
     uniqueVisitors = Math.max(
       uniqueVisitors,
       Object.keys(legacyState.visitors || {}).length,
+      cumulativeVisitorsFromDays,
     );
     pageViews = safeNumber(pageViews) + safeNumber(legacyState.pageViews || 0);
     updatedAt = updatedAt || legacyState.updatedAt || null;
@@ -556,7 +562,11 @@ export default async function handler(req, res) {
       const legacyTraffic = legacyState.traffic || {};
       const legacyByRoute = legacyTraffic.byRoute || {};
 
-      uniqueVisitors = Object.keys(legacyState.visitors || {}).length || uniqueVisitors;
+      uniqueVisitors = Math.max(
+        uniqueVisitors,
+        Object.keys(legacyState.visitors || {}).length,
+        sumRecordValues(legacyTraffic.visitorDayBuckets || {}),
+      );
       pageViews = safeNumber(legacyState.pageViews) || pageViews;
       updatedAt = legacyState.updatedAt || updatedAt;
       traffic = legacyTraffic;
@@ -587,7 +597,10 @@ export default async function handler(req, res) {
     }
   } else {
     const state = await readMetricsState();
-    uniqueVisitors = Object.keys(state.visitors || {}).length;
+    uniqueVisitors = Math.max(
+      Object.keys(state.visitors || {}).length,
+      sumRecordValues(state.traffic?.visitorDayBuckets || {}),
+    );
     pageViews = state.pageViews || 0;
     updatedAt = state.updatedAt || null;
     traffic = state.traffic || {};

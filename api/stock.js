@@ -38,6 +38,9 @@ const KV_TOKEN =
 
 const packageZipCache = new Map();
 const zipContextCache = new Map();
+const badInputLogGuard = new Map();
+
+const BAD_INPUT_LOG_WINDOW_MS = 5 * 60 * 1000;
 
 function hasKvConfig() {
   return typeof KV_URL === "string" && KV_URL.length > 0 && typeof KV_TOKEN === "string" && KV_TOKEN.length > 0;
@@ -184,6 +187,23 @@ function maybeCleanupCaches() {
       zipContextCache.delete(key);
     }
   }
+}
+
+function shouldLogBadInput(clientKey) {
+  const now = Date.now();
+  const key = String(clientKey || "unknown");
+  const previousTs = badInputLogGuard.get(key) || 0;
+  badInputLogGuard.set(key, now);
+
+  if (Math.random() < 0.02) {
+    for (const [k, ts] of badInputLogGuard.entries()) {
+      if (now - ts > BAD_INPUT_LOG_WINDOW_MS * 3) {
+        badInputLogGuard.delete(k);
+      }
+    }
+  }
+
+  return now - previousTs > BAD_INPUT_LOG_WINDOW_MS;
 }
 
 async function buildRowsFromCachedPackages(zipCode, variants) {
@@ -387,6 +407,10 @@ export default async function handler(req, res) {
     }
   }
 
+  const clientKey = session
+    ? `auth:${session.username}|${session.sessionNonce || "na"}`
+    : `guest:${ip}|${userAgent}`;
+
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
     await recordTrafficEvent({
@@ -403,14 +427,16 @@ export default async function handler(req, res) {
   const normalizedZip = normalizeZipCode(rawZipCode);
   if (!normalizedZip) {
     res.status(400).json({ error: "Ogiltigt postnummer. Ange exakt 5 siffror." });
-    const zipDiag = zipInputDiagnostics(rawZipCode);
-    await recordTrafficEvent({
-      route: "stock",
-      status: 400,
-      category: "validation",
-      message: `Invalid zipCode format (kind=${zipDiag.kind}, len=${zipDiag.length}, digits=${zipDiag.digitsLength ?? 0}, sample=${zipDiag.sample})`,
-      success: false,
-    });
+    if (shouldLogBadInput(clientKey)) {
+      const zipDiag = zipInputDiagnostics(rawZipCode);
+      await recordTrafficEvent({
+        route: "stock",
+        status: 400,
+        category: "ignored_bad_input",
+        message: `Invalid zipCode format (kind=${zipDiag.kind}, len=${zipDiag.length}, digits=${zipDiag.digitsLength ?? 0}, sample=${zipDiag.sample})`,
+        success: true,
+      });
+    }
     return;
   }
 
@@ -471,13 +497,15 @@ export default async function handler(req, res) {
             "Kunde inte hitta koordinater för postnumret just nu. Kontrollera postnumret eller försök igen om en stund.",
           degraded: false,
         });
-        await recordTrafficEvent({
-          route: "stock",
-          status: 400,
-          category: "geocode_no_match",
-          message: zipErrorMessage,
-          success: false,
-        });
+        if (shouldLogBadInput(clientKey)) {
+          await recordTrafficEvent({
+            route: "stock",
+            status: 400,
+            category: "ignored_bad_input",
+            message: zipErrorMessage,
+            success: true,
+          });
+        }
         return;
       }
 
