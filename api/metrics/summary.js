@@ -121,7 +121,9 @@ function computePeriodStats(
       }))
       .filter((entry) => Number.isFinite(entry.timestamp) && entry.timestamp >= from)
       .reduce((sum, entry) => sum + entry.count, 0);
-    const uniqueVisitors = uniqueVisitorsFromState > 0 ? uniqueVisitorsFromState : uniqueVisitorsFromDays;
+    // Use the highest reliable source to avoid undercount when one source is partial
+    // (e.g. legacy visitor-state vs day buckets after storage migrations).
+    const uniqueVisitors = Math.max(uniqueVisitorsFromState, uniqueVisitorsFromDays);
     result[key] = {
       requests,
       pageViews,
