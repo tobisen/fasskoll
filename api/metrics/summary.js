@@ -163,6 +163,14 @@ function sumRecordValues(input = {}) {
   return Object.values(input || {}).reduce((sum, value) => sum + safeNumber(value), 0);
 }
 
+function preferredUniqueVisitors(strictUnique, cumulativeDailyUnique) {
+  const strict = safeNumber(strictUnique);
+  const cumulative = safeNumber(cumulativeDailyUnique);
+  // Product expectation: total should grow day-by-day (daily unique accumulation).
+  // Fall back to strict unique only when daily buckets are unavailable.
+  return cumulative > 0 ? cumulative : strict;
+}
+
 function deriveVisitorBucketsFromLegacyVisitors(visitors = {}) {
   const dayBuckets = {};
   const hourBuckets = {};
@@ -446,9 +454,12 @@ export default async function handler(req, res) {
     }
 
     const cumulativeVisitorsFromDays = sumRecordValues(mergedVisitorDayBuckets);
-    uniqueVisitors = Math.max(
+    const strictUniqueVisitors = Math.max(
       uniqueVisitors,
       Object.keys(legacyState.visitors || {}).length,
+    );
+    uniqueVisitors = preferredUniqueVisitors(
+      strictUniqueVisitors,
       cumulativeVisitorsFromDays,
     );
     pageViews = safeNumber(pageViews) + safeNumber(legacyState.pageViews || 0);
@@ -562,9 +573,8 @@ export default async function handler(req, res) {
       const legacyTraffic = legacyState.traffic || {};
       const legacyByRoute = legacyTraffic.byRoute || {};
 
-      uniqueVisitors = Math.max(
-        uniqueVisitors,
-        Object.keys(legacyState.visitors || {}).length,
+      uniqueVisitors = preferredUniqueVisitors(
+        Math.max(uniqueVisitors, Object.keys(legacyState.visitors || {}).length),
         sumRecordValues(legacyTraffic.visitorDayBuckets || {}),
       );
       pageViews = safeNumber(legacyState.pageViews) || pageViews;
@@ -597,7 +607,7 @@ export default async function handler(req, res) {
     }
   } else {
     const state = await readMetricsState();
-    uniqueVisitors = Math.max(
+    uniqueVisitors = preferredUniqueVisitors(
       Object.keys(state.visitors || {}).length,
       sumRecordValues(state.traffic?.visitorDayBuckets || {}),
     );
