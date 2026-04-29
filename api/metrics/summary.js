@@ -64,7 +64,6 @@ function computePeriodStats(
   minuteBuckets,
   pageViewDayBuckets,
   errorDayBuckets,
-  visitors,
   visitorDayBuckets = {},
 ) {
   const now = Date.now();
@@ -107,13 +106,6 @@ function computePeriodStats(
     const errors = errorEntries
       .filter((entry) => Number.isFinite(entry.timestamp) && entry.timestamp >= from)
       .reduce((sum, entry) => sum + entry.count, 0);
-    const uniqueVisitorsFromState = Object.values(visitors || {}).reduce((sum, value) => {
-      const ts =
-        value && typeof value === "object" && typeof value.lastSeenAt === "number"
-          ? value.lastSeenAt
-          : 0;
-      return ts >= from ? sum + 1 : sum;
-    }, 0);
     const uniqueVisitorsFromDays = Object.entries(visitorDayBuckets || {})
       .map(([day, count]) => ({
         timestamp: Date.parse(`${day}T00:00:00Z`),
@@ -121,9 +113,7 @@ function computePeriodStats(
       }))
       .filter((entry) => Number.isFinite(entry.timestamp) && entry.timestamp >= from)
       .reduce((sum, entry) => sum + entry.count, 0);
-    // Use the highest reliable source to avoid undercount when one source is partial
-    // (e.g. legacy visitor-state vs day buckets after storage migrations).
-    const uniqueVisitors = Math.max(uniqueVisitorsFromState, uniqueVisitorsFromDays);
+    const uniqueVisitors = uniqueVisitorsFromDays;
     result[key] = {
       requests,
       pageViews,
@@ -373,7 +363,6 @@ export default async function handler(req, res) {
       minuteBuckets,
       pageViewDayBuckets,
       errorDayBuckets,
-      {},
       visitorDayBuckets,
     );
 
@@ -551,7 +540,6 @@ export default async function handler(req, res) {
       mergedMinuteBuckets,
       mergedPageViewDayBuckets,
       mergedErrorDayBuckets,
-      legacyState.visitors || {},
       mergedVisitorDayBuckets,
     );
     debug.minuteKeysCount = Object.keys(mergedMinuteBuckets).length;
@@ -598,7 +586,6 @@ export default async function handler(req, res) {
         legacyTraffic.minuteBuckets || {},
         legacyTraffic.pageViewDayBuckets || {},
         legacyTraffic.errorDayBuckets || {},
-        legacyState.visitors || {},
         legacyTraffic.visitorDayBuckets || {},
       );
 
@@ -621,7 +608,6 @@ export default async function handler(req, res) {
       traffic.minuteBuckets || {},
       traffic.pageViewDayBuckets || {},
       traffic.errorDayBuckets || {},
-      state.visitors || {},
       traffic.visitorDayBuckets || {},
     );
     recentErrors = Array.isArray(traffic.recentErrors)
