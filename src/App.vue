@@ -398,7 +398,7 @@ button {
   color: var(--danger);
 }
 
-@media (max-width: 860px) {
+@media (max-width: 1024px), (hover: none) and (pointer: coarse) {
   .site-header {
     grid-template-columns: 1fr;
     gap: 0.45rem;
@@ -408,6 +408,13 @@ button {
   .header-center,
   .header-right {
     justify-self: start;
+  }
+
+  .site-footer {
+    position: static !important;
+    bottom: auto !important;
+    z-index: auto !important;
+    padding: 0.8rem 1rem 1rem;
   }
 }
 </style>
