@@ -5,6 +5,12 @@ test.describe("Fasskoll public smoke", () => {
     await page.goto("/");
     await expect(page.getByRole("link", { name: "Fasskoll" })).toBeVisible();
     await expect(page.getByText("inte en officiell tjänst från Fass", { exact: false })).toBeVisible();
+    await expect(
+      page.getByText(
+        "Donationer är frivilliga och ger inga extra funktioner",
+        { exact: false },
+      ),
+    ).toBeVisible();
   });
 
   test("public medicine flow returns data or controlled fallback", async ({ page }) => {

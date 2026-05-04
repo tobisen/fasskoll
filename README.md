@@ -11,6 +11,7 @@ Tjänsten är en intern hobbylösning och är tydligt markerad som **ej officiel
 - Statusfilter (Alla / I lager / Ej i lager / Kontakta apotek)
 - Inloggat läge för fri läkemedelssökning
 - Sökning startar vid aktivt val/sökning av läkemedel (ingen separat "Sök lagerstatus"-knapp)
+- Tydlig footer med disclaimer + frivillig "Stötta via Ko-fi"-länk (om `VITE_KOFI_URL` är satt)
 - Adminvyer:
   - `Trafik & drift` (endpointtrafik, upstreamfel, service-läge)
   - `Statistik` (diagram för anrop, besökare och fel: dag/vecka/månad/år)
@@ -90,6 +91,7 @@ Tjänsten är en intern hobbylösning och är tydligt markerad som **ej officiel
 - `KV_REST_API_URL`
 - `KV_REST_API_TOKEN`
 - `METRICS_KV_KEY`
+- `VITE_KOFI_URL` (frivillig extern donationslänk i footer/meny)
 
 ## Kör lokalt
 ```bash

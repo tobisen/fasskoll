@@ -155,7 +155,12 @@ const hardeningItems: Item[] = [
   {
     title: "Lägg disclaimer (ej officiell tjänst)",
     status: "implemented",
-    details: "Tydlig disclaimer visas på startsidan.",
+    details: "Tydlig disclaimer visas på startsidan och i sidfoten.",
+  },
+  {
+    title: "Donationer är frivilliga utan premium-funktioner",
+    status: "implemented",
+    details: "Stötta-länk går endast till extern Ko-fi-sida och låser inte upp några funktioner i Fasskoll.",
   },
   {
     title: "Minimera datalagring",

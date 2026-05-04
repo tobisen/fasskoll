@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Analytics } from "@vercel/analytics/vue";
+import DonationLink from "./components/DonationLink.vue";
 
 const username = ref("");
 const password = ref("");
@@ -12,6 +13,7 @@ const showLoginForm = ref(false);
 const error = ref("");
 const router = useRouter();
 const route = useRoute();
+const kofiUrl = computed(() => (import.meta.env.VITE_KOFI_URL ?? "").trim());
 
 const VISITOR_ID_STORAGE_KEY = "fasskoll_visitor_id";
 
@@ -224,6 +226,14 @@ watch(
       </nav>
 
       <div class="header-right">
+        <a
+          v-if="kofiUrl"
+          :href="kofiUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Stötta
+        </a>
         <a v-if="!isLoggedIn && !authLoading" href="#" @click.prevent="handleLoginLinkClick">Logga in</a>
         <a v-if="isLoggedIn" href="#" @click.prevent="handleLogout">Logga ut</a>
       </div>
@@ -253,6 +263,13 @@ watch(
       </router-view>
     </main>
 
+    <footer class="site-footer">
+      <p class="disclaimer">
+        Fasskoll är en fristående, ej officiell tjänst. Donationer är frivilliga och ger inga extra funktioner.
+      </p>
+      <DonationLink />
+    </footer>
+
     <Analytics />
   </div>
 </template>
@@ -260,6 +277,8 @@ watch(
 <style scoped>
 .site {
   min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
 }
 
 .site-header {
@@ -314,6 +333,27 @@ watch(
 
 .site-main {
   padding: 1.5rem;
+}
+
+.site-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 9;
+  padding: 1rem 1.5rem 1.4rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 251, 255, 0.92) 100%);
+  backdrop-filter: blur(8px);
+  display: grid;
+  gap: 0.7rem;
+}
+
+.disclaimer {
+  margin: 0;
+  color: #31486c;
+  font-size: 0.96rem;
+  line-height: 1.45;
+  font-weight: 700;
 }
 
 .panel {
